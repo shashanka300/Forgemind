@@ -49,6 +49,8 @@ class Settings:
     compat_agent_model: str = ""
     compat_worker_model: str = ""
     send_frames: bool = True
+    fallback_provider: str = ""
+    fallback_cooldown: float = 60.0
 
     segmenter: str = "clip_grid"
     sam_url: str = ""
@@ -89,6 +91,8 @@ class Settings:
             compat_agent_model=_env("FM_COMPAT_AGENT_MODEL"),
             compat_worker_model=_env("FM_COMPAT_WORKER_MODEL"),
             send_frames=_bool("FM_SEND_FRAMES", True),
+            fallback_provider=_env("FM_FALLBACK_PROVIDER").lower(),
+            fallback_cooldown=float(_env("FM_FALLBACK_COOLDOWN", "60")),
             segmenter=_env("FM_SEGMENTER", "clip_grid").lower(),
             sam_url=_env("FM_SAM_URL"),
             sam_token=_env("FM_SAM_TOKEN"),

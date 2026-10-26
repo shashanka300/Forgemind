@@ -8,6 +8,7 @@ from forgemind.memory import WorldMemory
 from forgemind.perception.pipeline import Perception
 from forgemind.perception.safety import Safety
 from forgemind.providers import build_embedder, build_llm, build_segmenter
+from forgemind.server.asr import VoiceTranscribeRelay
 
 SAFETY_EVERY_S = 5.0
 
@@ -27,6 +28,7 @@ class Runtime:
         self.llm = llm or build_llm(settings)
         self.ctx = Context(settings, self.memory, self.perception, self.safety, self.hub, self.llm)
         self.agent = Agent(self.ctx)
+        self.asr = VoiceTranscribeRelay(settings)
         self._stop = threading.Event()
 
     def describe(self):
@@ -36,6 +38,7 @@ class Runtime:
                 "segmenter": self.segmenter.name,
                 "segmenter_error": getattr(self.segmenter, "last_error", None),
                 "embedder": self.embedder.name,
+                "asr": "muse-voice-transcribe" if self.asr.available else "browser",
                 "vector_backend": self.memory.index.name,
                 "concepts": self.settings.concepts,
                 "zones": self.settings.zones, "static_zone": self.settings.static_zone}

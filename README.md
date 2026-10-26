@@ -38,7 +38,7 @@ cd Forgemind
 uv venv --python 3.12 && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 uv pip install -e ".[vision,dev]"
 cp .env.example .env
-pytest -q                       # 20 tests, no downloads
+pytest -q                       # no downloads, no network
 forgemind serve --zrok          # prints the phone link (HTTPS, needed for the camera)
 ```
 
@@ -116,9 +116,10 @@ deploy/                  modal_sam.py (fallback hosted SAM 3.1), Dockerfile + co
 
 - `clip_grid` boxes are tile-sized and it confuses look-alike tools; it's there to wire
   things up until SAM 3.1 runs locally (`FM_SEGMENTER=sam3`). It's ~1 s per frame on a CPU.
-- Not built yet: local SAM 3.1 hasn't been tested on the workstation, the SAM 3.1 API
-  adapter (`meta_sam`) is a stub, Voice Transcribe streaming, the Perception Encoder
-  embedder, and automatic fallback to Muse Glimmer. See
+- Built but only tested against fake endpoints until keys arrive: the SAM 3.1 API adapter
+  (`meta_sam`), Voice Transcribe streaming, and automatic fallback to Muse Glimmer.
+- Local SAM 3 imports on Windows but hasn't run yet (needs `facebook/sam3` access); the
+  Perception Encoder embedder runs, but thresholds aren't recalibrated for it. See
   [`docs/META_INTEGRATION.md`](docs/META_INTEGRATION.md).
 - The mock model only matches fixed phrasings and cannot read displays.
 - Disappearance is only inferred by the bench camera (the phone sees too little at once).

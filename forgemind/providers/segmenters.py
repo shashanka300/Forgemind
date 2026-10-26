@@ -1,19 +1,20 @@
 """Concept segmenters: text concepts in, boxes (and masks) out.
 
-No model runs on the user's machine. The options are:
+The options are:
 
 * ClipGridSegmenter  - stand-in that works today: CLIP zero-shot over a grid
   of tiles on the server's CPU. Coarse, tile-sized boxes; enough to wire up
   memory, zones, safety and the overlay until hosted SAM is up.
-* RemoteSamSegmenter - SAM 3 / 3.1 on a hosted GPU (deploy/modal_sam.py on
+* Sam3Segmenter      - SAM 3 / 3.1 open weights on the local GPU (continuous
+  perception); also what the Modal worker runs.
+* MetaApiSegmenter   - SAM 3.1 through the Meta Model API, one billed image
+  per concept: for on-demand checks, not per frame.
+* RemoteSamSegmenter - fallback: SAM on a hosted GPU (deploy/modal_sam.py on
   Modal, or any endpoint speaking the same small JSON protocol).
-* MetaApiSegmenter   - placeholder in case SAM is served through the Meta
-  Model API during the hackathon.
-* Sam3Segmenter      - the SAM 3 wrapper that runs *inside* the hosted GPU
-  worker. Not used on your machine.
 """
 import base64
 import io
+import re
 import threading
 import time
 
@@ -100,9 +101,9 @@ class ClipGridSegmenter:
 
 
 class Sam3Segmenter:
-    """SAM 3 / 3.1 concept segmentation. Runs inside the hosted GPU worker
-    (deploy/modal_sam.py), which installs torch + the sam3 package and pulls
-    the gated checkpoint with a Hugging Face token.
+    """SAM 3 / 3.1 concept segmentation in-process: on the local GPU
+    (FM_SEGMENTER=sam3), or inside the hosted Modal worker (deploy/modal_sam.py).
+    Needs torch + the sam3 package and the gated checkpoint (Hugging Face login).
 
     TODO(day 1): confirm the import paths and output keys against the
     version the worker installs; SAM 3.1 may ship a different builder name.
@@ -199,17 +200,103 @@ class RemoteSamSegmenter:
 
 
 class MetaApiSegmenter:
-    """Placeholder: SAM served through the Meta Model API.
+    """SAM 3.1 through the Meta Model API (`POST /v1/responses`, model sam-3.1).
 
-    TODO(when access arrives): if the hackathon exposes SAM 3.1 as an API,
-    send the frame + concept list here and map the response to Detection.
+    The API takes one noun phrase per request, so a frame costs one billed
+    image per concept ($2.50 per 1k). Use it on demand (checks, close-ups),
+    never per frame; continuous perception runs SAM 3.1 locally (`sam3`).
+
+    The answer is special-token text, one line per image:
+        <0f>0<|box;x1=..;y1=..;x2=..;y2=..;w=..;h=..;c=..|><|mask;...|>,1<|box;...|>...
+    Boxes are pixel xyxy on the image we sent; `c` (0..1) is present because
+    we ask for it with metadata.include_confidence. Masks are not decoded.
     """
     name = "meta_sam"
+    model = "sam-3.1"
 
-    def __init__(self, settings):
-        self.settings = settings
+    def __init__(self, settings, http_client=None, timeout=30.0, max_px=1024, workers=4):
+        import httpx
+        if not settings.meta_api_key:
+            raise ValueError("FM_SEGMENTER=meta_sam needs MODEL_API_KEY in .env")
+        self.url = settings.meta_base_url.rstrip("/") + "/responses"
+        self.headers = {"Authorization": f"Bearer {settings.meta_api_key}"}
+        self.min_score = settings.sam_min_score
+        self.client = http_client or httpx.Client(timeout=timeout)
+        self.max_px, self.workers = max_px, workers
+        self.last_error = None
+        self.last_ms = None
+        self.images_billed = 0
+
+    def _request(self, data_url, concept):
+        body = {"model": self.model, "metadata": {"include_confidence": "true"},
+                "input": [{"role": "user", "content": [
+                    {"type": "input_text", "text": concept},
+                    {"type": "input_image", "image_url": data_url}]}]}
+        r = self.client.post(self.url, json=body, headers=self.headers)
+        r.raise_for_status()
+        return output_text(r.json())
 
     def segment(self, image, concepts):
-        raise NotImplementedError(
-            "SAM via Meta Model API is not wired yet - see docs/META_INTEGRATION.md. "
-            "Use FM_SEGMENTER=remote_sam (hosted) or clip_grid meanwhile.")
+        from concurrent.futures import ThreadPoolExecutor
+        img = image.convert("RGB").copy()
+        img.thumbnail((self.max_px, self.max_px))
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=85)
+        data_url = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+        concepts = list(concepts)
+        t0 = time.perf_counter()
+        try:
+            with ThreadPoolExecutor(max_workers=self.workers) as pool:
+                texts = list(pool.map(lambda c: self._request(data_url, c), concepts))
+        except Exception as e:
+            self.last_error = f"{type(e).__name__}: {e}"
+            return []
+        self.last_error = None
+        self.last_ms = round((time.perf_counter() - t0) * 1000)
+        self.images_billed += len(concepts)
+        dets = []
+        for concept, text in zip(concepts, texts):
+            for rec in parse_sam_text(text):
+                score = rec["c"] if rec["c"] is not None else 1.0
+                if score < self.min_score or not rec["w"] or not rec["h"]:
+                    continue
+                w, h = rec["w"], rec["h"]
+                dets.append(Detection(concept=concept, score=score, track_id=rec["id"],
+                                      box=(rec["x1"] / w, rec["y1"] / h,
+                                           rec["x2"] / w, rec["y2"] / h)))
+        return nms(dets)
+
+
+def output_text(resp):
+    """Text of a Responses API reply (the `output_text` shortcut or the message parts)."""
+    if isinstance(resp.get("output_text"), str):
+        return resp["output_text"]
+    parts = []
+    for item in resp.get("output") or []:
+        for c in item.get("content") or []:
+            if c.get("type") == "output_text":
+                parts.append(c.get("text", ""))
+    return "\n".join(parts)
+
+
+_MASK = re.compile(r"<\|mask;.*?\|>")
+_RECORD = re.compile(r"(?:^|,|<\d+f>)\s*(\d+)<\|box;([^|]*)\|>")
+
+
+def parse_sam_text(text):
+    """Box records from SAM 3.1 special-token text (all frames)."""
+    out = []
+    for line in (text or "").splitlines():
+        line = _MASK.sub("", line)     # mask payloads are base85 and may contain commas
+        m = re.match(r"\s*<(\d+)f>", line)
+        frame = int(m.group(1)) if m else 0
+        for rid, fields in _RECORD.findall(line):
+            kv = dict(f.split("=", 1) for f in fields.split(";") if "=" in f)
+            try:
+                rec = {k: float(kv[k]) for k in ("x1", "y1", "x2", "y2", "w", "h")}
+            except (KeyError, ValueError):
+                continue
+            rec.update(id=int(rid), frame=frame,
+                       c=float(kv["c"]) if "c" in kv else None)
+            out.append(rec)
+    return out

@@ -246,4 +246,25 @@ def create_app(rt):
         finally:
             rt.hub.clients.discard(socket)
 
+    @app.websocket("/ws/asr")
+    async def ws_asr(socket: WebSocket):
+        """One push-to-talk utterance: PCM16 16 kHz in, transcripts out."""
+        if not authorized(socket.cookies, socket.headers, dict(socket.query_params)):
+            await socket.close(code=4401)
+            return
+        await socket.accept()
+        if not rt.asr.available:
+            await socket.send_json({"type": "error", "text": "no MODEL_API_KEY: use browser speech"})
+            await socket.close()
+            return
+        try:
+            await rt.asr.run(socket)     # the phone sends the final text to /api/chat
+        except WebSocketDisconnect:
+            pass
+        finally:
+            try:
+                await socket.close()
+            except RuntimeError:
+                pass
+
     return app

@@ -24,6 +24,17 @@ vision = [
     "fastembed==0.8.0",
     "qdrant-edge-py==0.7.2",
 ]
+# Local GPU models: SAM 3 (image segmentation), Perception Encoder embeddings.
+# Install PyTorch with CUDA 12.8+ first (RTX 50xx):
+#   uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+local = [
+    "sam3 @ git+https://github.com/facebookresearch/sam3.git@f1647e8d0c1d280991f4d1b7d974c2704537fe66",
+    "einops",
+    "pycocotools",
+    "psutil",
+    "triton-windows; sys_platform == 'win32'",
+    "open_clip_torch>=3.3",
+]
 # Deploys hosted SAM 3 / 3.1 (deploy/modal_sam.py). Nothing GPU-related is
 # installed on your machine; the GPU image is built on Modal.
 deploy = [

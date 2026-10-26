@@ -2,6 +2,9 @@
 
 `clip` is the gallery app's encoder pair (CLIP ViT-B/32 vision + text towers
 via FastEmbed/ONNX, CPU, no PyTorch), so thresholds learned there carry over.
+`pe` is Meta's Perception Encoder (PE-Core-L14-336 via OpenCLIP, PyTorch, GPU
+if available): stronger image/text matching, but its similarities live on a
+different scale, so FM_TEACH_MIN_SIM / FM_MATCH_MIN_SIM must be recalibrated.
 `hash` is a tiny deterministic embedder for tests and offline smoke runs.
 """
 import hashlib
@@ -54,6 +57,62 @@ class ClipEmbedder:
     def _text_cached(self, text):
         with self._lock:
             return tuple(_unit(next(self._text().embed([text]))))
+
+    def embed_text(self, text):
+        return list(self._text_cached(text))
+
+    def warm_up(self):
+        self.embed_image(Image.new("RGB", (32, 32)))
+        self.embed_text("a photo")
+
+
+class PerceptionEncoderEmbedder:
+    name = "pe"
+    dim = 1024
+    MODEL = "PE-Core-L-14-336"
+
+    def __init__(self, model=None, device=None, cache_dir=None):
+        self.model_name = model or self.MODEL
+        self.device = device
+        self.cache_dir = cache_dir
+        self._lock = threading.Lock()
+        self._m = None
+
+    def _load(self):
+        if self._m is None:
+            import open_clip
+            import torch
+            device = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
+            model, _, preprocess = open_clip.create_model_and_transforms(
+                self.model_name, pretrained="meta", device=device, cache_dir=self.cache_dir)
+            model.eval()
+            if device == "cuda":
+                model = model.half()
+            self._m = (model, preprocess, open_clip.get_tokenizer(self.model_name), device)
+        return self._m
+
+    def embed_images(self, images):
+        if not images:
+            return []
+        import torch
+        with self._lock:
+            model, preprocess, _, device = self._load()
+            x = torch.stack([preprocess(i.convert("RGB")) for i in images]).to(device)
+            with torch.no_grad():
+                v = model.encode_image(x.half() if device == "cuda" else x)
+            return [_unit(r) for r in v.float().cpu().numpy()]
+
+    def embed_image(self, image):
+        return self.embed_images([image])[0]
+
+    @lru_cache(maxsize=512)
+    def _text_cached(self, text):
+        import torch
+        with self._lock:
+            model, _, tokenizer, device = self._load()
+            with torch.no_grad():
+                v = model.encode_text(tokenizer([text]).to(device))
+            return tuple(_unit(v.float().cpu().numpy()[0]))
 
     def embed_text(self, text):
         return list(self._text_cached(text))

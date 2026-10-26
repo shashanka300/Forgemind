@@ -291,7 +291,13 @@ function connect(delay = 500) {
   const url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
   ws = new WebSocket(url);
   ws.onopen = () => { $("wsdot").classList.add("on"); delay = 500; };
-  ws.onmessage = ev => { try { onPush(JSON.parse(ev.data)); } catch (e) {} };
+  ws.onmessage = ev => {
+    try {
+      const m = JSON.parse(ev.data);
+      if (m.type === "hello") ASR = (m.providers || {}).asr || "browser";
+      else onPush(m);
+    } catch (e) {}
+  };
   ws.onclose = () => { $("wsdot").classList.remove("on"); setTimeout(() => connect(Math.min(delay * 2, 10000)), delay); };
 }
 connect();
@@ -322,32 +328,85 @@ async function send(text) {
 }
 $("text").addEventListener("keydown", e => { if (e.key === "Enter") { send(e.target.value); e.target.value = ""; } });
 
+// Speech-to-text: Muse Voice Transcribe through the server when it has a key
+// (/ws/asr, PCM16 16 kHz), otherwise the browser's own recognizer.
+let ASR = "browser";
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null;
-if (SR) {
-  const ptt = $("ptt");
-  const start = e => {
-    e.preventDefault(); if (rec) return;
-    speechSynthesis && speechSynthesis.cancel();
-    rec = new SR(); rec.lang = navigator.language || "en-US"; rec.interimResults = true;
-    let finalText = "";
-    rec.onresult = ev => {
-      let interim = ""; finalText = "";
-      for (const r of ev.results) (r.isFinal ? (finalText += r[0].transcript) : (interim += r[0].transcript));
-      $("text").value = finalText + interim;
-    };
-    rec.onend = () => { ptt.classList.remove("live"); const t = $("text").value; $("text").value = ""; rec = null; send(t); };
-    rec.onerror = () => { ptt.classList.remove("live"); rec = null; };
-    rec.start(); ptt.classList.add("live");
+const PCM_WORKLET = `class P extends AudioWorkletProcessor {
+  process(inputs) { const ch = inputs[0][0]; if (ch) this.port.postMessage(ch.slice(0)); return true; }
+}
+registerProcessor("pcm", P);`;
+
+function serverTalk(ptt) {
+  let sock, ctx, stream, queue = [], ready = false, ended = false;
+  const finish = text => {
+    ptt.classList.remove("live"); $("text").value = "";
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (ctx) ctx.close();
+    send(text || "");
   };
-  const stop = () => rec && rec.stop();
+  const begin = async () => {
+    sock = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/asr");
+    sock.binaryType = "arraybuffer";
+    sock.onmessage = ev => {
+      const m = JSON.parse(ev.data);
+      if (m.type === "ready") { ready = true; queue.forEach(b => sock.send(b)); queue = []; if (ended) sock.send('{"type":"end"}'); }
+      else if (m.type === "partial") $("text").value = m.text;
+      else if (m.type === "final") { finish(m.text); sock.close(); }
+      else if (m.type === "error") { toast("Speech: " + m.text); finish(""); sock.close(); }
+    };
+    stream = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true}});
+    ctx = new AudioContext({sampleRate: 16000});
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([PCM_WORKLET], {type: "text/javascript"})));
+    const node = new AudioWorkletNode(ctx, "pcm");
+    node.port.onmessage = e => {
+      if (ended) return;
+      const f = e.data, out = new Int16Array(f.length);
+      for (let i = 0; i < f.length; i++) out[i] = Math.max(-1, Math.min(1, f[i])) * 0x7fff;
+      if (ready && sock.readyState === 1) sock.send(out.buffer); else queue.push(out.buffer);
+    };
+    ctx.createMediaStreamSource(stream).connect(node);
+  };
+  begin().catch(e => { toast("Microphone: " + e.message); finish(""); });
+  return () => {
+    if (ended) return; ended = true;
+    if (ready && sock.readyState === 1) sock.send('{"type":"end"}');
+  };
+}
+
+function browserTalk(ptt) {
+  const rec = new SR(); rec.lang = navigator.language || "en-US"; rec.interimResults = true;
+  let finalText = "";
+  rec.onresult = ev => {
+    let interim = ""; finalText = "";
+    for (const r of ev.results) (r.isFinal ? (finalText += r[0].transcript) : (interim += r[0].transcript));
+    $("text").value = finalText + interim;
+  };
+  rec.onend = () => { ptt.classList.remove("live"); const t = $("text").value; $("text").value = ""; send(t); };
+  rec.onerror = () => ptt.classList.remove("live");
+  rec.start();
+  return () => rec.stop();
+}
+
+{
+  const ptt = $("ptt");
+  let stopTalk = null;
+  const start = e => {
+    e.preventDefault(); if (stopTalk) return;
+    if (ASR === "browser" && !SR) return;
+    speechSynthesis && speechSynthesis.cancel();
+    ptt.classList.add("live");
+    stopTalk = ASR === "browser" ? browserTalk(ptt) : serverTalk(ptt);
+  };
+  const stop = () => { if (stopTalk) { stopTalk(); stopTalk = null; } };
   ptt.addEventListener("pointerdown", start);
   ptt.addEventListener("pointerup", stop);
   ptt.addEventListener("pointercancel", stop);
   ptt.addEventListener("pointerleave", stop);
-} else {
-  $("ptt").textContent = "Send";
-  $("ptt").onclick = () => { send($("text").value); $("text").value = ""; };
+  // Without any recognizer the button just sends what was typed.
+  ptt.addEventListener("click", () => {
+    if (ASR === "browser" && !SR) { send($("text").value); $("text").value = ""; }
+  });
 }
 
 // ---------- panes ----------

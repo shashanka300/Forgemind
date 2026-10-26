@@ -11,11 +11,11 @@ to end on stand-ins.
 | Slot | Stand-in (no keys) | Target | Where | Switch | Status |
 |---|---|---|---|---|---|
 | Reasoning (agent + workers) | `mock` rule-based model | Muse Spark 1.3 (default), Muse Wonder (hard turns) | Model API | `FM_LLM_PROVIDER=meta` | Works |
-| Speech-to-text | Browser speech recognition | Muse Voice Transcribe (streaming) | Model API | — | To build (section 3) |
-| Segmentation, continuous | `clip_grid` (CLIP over tiles) | SAM 3.1 open weights | Local GPU | `FM_SEGMENTER=sam3` | Code exists, untested locally |
-| Segmentation, on demand | — | SAM 3.1 `sam-3.1` | Model API | `meta_sam` | Stub (section 2B) |
-| Embeddings | CLIP ViT-B/32 (CPU) | Perception Encoder PE-Core-L14-336, if the crop test wins | Local GPU | `FM_EMBEDDER` | CLIP works; PE to build |
-| Fallback reasoning | — | Muse Glimmer 30B (Q4) | Local GPU | `FM_LLM_PROVIDER=compat` | To set up (section 4) |
+| Speech-to-text | Browser speech recognition | Muse Voice Transcribe (streaming) | Model API | automatic when `MODEL_API_KEY` is set | Built, tested against a fake endpoint (section 3) |
+| Segmentation, continuous | `clip_grid` (CLIP over tiles) | SAM 3 image model (open weights) | Local GPU | `FM_SEGMENTER=sam3` | Imports on Windows; waiting on `facebook/sam3` access |
+| Segmentation, on demand | — | SAM 3.1 `sam-3.1` | Model API | `meta_sam` | Built, tested against a fake endpoint (section 2B) |
+| Embeddings | CLIP ViT-B/32 (CPU) | Perception Encoder PE-Core-L14-336, if the crop test wins | Local GPU | `FM_EMBEDDER=pe` | Built; runs on the 5090 (16 crops in ~60 ms, 2.7 GB) |
+| Fallback reasoning | — | Muse Glimmer 30B (Q4) | Local GPU | `FM_FALLBACK_PROVIDER=compat` | Switching built; Glimmer server not set up (section 4) |
 | Text-to-speech | Browser `speechSynthesis` | Unchanged; Kokoro-82M if the voice is poor | Phone / local | — | Works |
 
 The API has **no embeddings endpoint and no text-to-speech**, so those are always local.
@@ -64,13 +64,17 @@ Where the models are used:
 
 ### A. Local GPU (continuous perception)
 
-`Sam3Segmenter` in `providers/segmenters.py` runs SAM 3 / 3.1 in-process. The RTX 5090
-(Blackwell) needs a PyTorch build with CUDA 12.8 or newer.
+`Sam3Segmenter` in `providers/segmenters.py` runs SAM in-process. In the `sam3` package,
+per-image segmentation (`build_sam3_image_model`) loads the **SAM 3** checkpoint
+(`facebook/sam3`, `sam3.pt`); the SAM 3.1 checkpoint (`facebook/sam3.1`,
+`sam3.1_multiplex.pt`) is the multiplex *video* tracker (`build_sam3_predictor`). Our
+pipeline segments single frames, so it needs `facebook/sam3`; 3.1 matters only if we move
+to video tracking. The RTX 5090 (Blackwell) needs PyTorch with CUDA 12.8 or newer.
 
 ```bash
-# SAM checkpoints are gated: request access to facebook/sam3.1 on Hugging Face first
-pip install "torch>=2.7" torchvision --index-url https://download.pytorch.org/whl/cu128
-pip install git+https://github.com/facebookresearch/sam3.git
+# Both SAM repos are gated: request access on Hugging Face first
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+uv pip install -e ".[local]"     # sam3 + einops, pycocotools, psutil, triton-windows
 hf auth login
 
 # .env
@@ -86,15 +90,16 @@ Things to verify on Day 2:
   renames anything, that one class is the only code to change.
 - Per-frame latency on the 5090 for the full `FM_CONCEPTS` list. Each concept is one
   prompt, so trim the list to what's actually on your bench.
-- Pin the `sam3` git commit once it works.
+- The `sam3` commit is pinned in `pyproject.toml` (`local` extra).
 
 ### B. Model API (on demand only)
 
-Fill in `MetaApiSegmenter.segment` in `providers/segmenters.py`: send one concept per
-request (`POST /v1/responses` with model `sam-3.1`, a noun phrase and one `input_image`),
-parse `output_text` (one line per image with a box and mask per object), and map it to
-`Detection(concept, box 0..1, score)`. The docs don't mention confidence scores, so
-`FM_SAM_MIN_SCORE` may not apply.
+`MetaApiSegmenter` (`FM_SEGMENTER=meta_sam`) sends one request per concept in parallel
+(`POST /v1/responses`, model `sam-3.1`, the noun phrase plus the frame as a JPEG data URL,
+`metadata.include_confidence: "true"`) and parses the special-token reply
+(`<0f>0<|box;x1=..;y1=..;x2=..;y2=..;w=..;h=..;c=..|><|mask;...|>,1<|box;...`): pixel
+xyxy boxes, a 0..1 confidence `c` compared with `FM_SAM_MIN_SCORE`, and a stable object
+id kept as `track_id`. Masks are not decoded yet. `images_billed` counts billed images.
 
 **Never use this per frame.** At one concept per request, 12 concepts on one bench frame
 every 2 s is about 21,600 images, or ~$54, an hour. Use it to confirm a `where_is` result,
@@ -133,10 +138,13 @@ Android. The target is Muse Voice Transcribe (`muse-voice-transcribe-1.0`):
 - Files: `POST /v1/asr/transcribe`
 - Speaker labels and turn-level timestamps; no word-level timestamps.
 
-To build: the phone streams microphone audio over the existing WebSocket while *Hold* is
-pressed, and the server relays it to the realtime endpoint and feeds the final transcript
-to the agent. That keeps `MODEL_API_KEY` on the server. Check on Day 2 that it works from
-India and how long the final transcript takes after release. Fallbacks: the browser
+Built (`server/asr.py`): while *Hold* is pressed the phone opens `/ws/asr` and streams
+PCM16 16 kHz mono from an AudioWorklet; the server relays it to the realtime endpoint in
+`PUSH_TO_TALK` mode, forwards cumulative partials to the text box, sends `endStream` on
+release and hands the final transcript to the chat. `MODEL_API_KEY` never leaves the
+server. Without a key the page uses the browser recognizer as before. Still to check
+with a real key: that it works from India, the exact `endStream` message shape, and how
+long the final transcript takes after release. Fallbacks: the browser
 recognizer (current), or Parakeet TDT 0.6B v3 / Whisper large-v3-turbo on the local GPU.
 
 ## 4. Fallback reasoning: Meta open weights
@@ -161,16 +169,20 @@ FM_COMPAT_AGENT_MODEL=<model id the server reports>
 **Hosted** (partner credits: Baseten $100, Modal $100, Fireworks $25): point
 `FM_COMPAT_BASE_URL` at the provider and copy the exact model id from its model page.
 
-`forgemind check` confirms the endpoint returns tool calls before you rely on it. Automatic
-fallback from the Model API to Glimmer on errors (PRD F-AGT-7) is not built yet; today
-switching is a `.env` change and a restart.
+`forgemind check` confirms the endpoint returns tool calls before you rely on it.
+
+**Automatic fallback** (PRD F-AGT-7): keep `FM_LLM_PROVIDER=meta` and set
+`FM_FALLBACK_PROVIDER=compat` with the Glimmer endpoint in `FM_COMPAT_*`. When the Model API
+errors, times out or rate-limits, the turn is retried on Glimmer and Glimmer stays in use
+for `FM_FALLBACK_COOLDOWN` seconds (default 60) before the API is tried again.
 
 ## 5. Embeddings
 
 `FM_EMBEDDER=clip` (CLIP ViT-B/32 via FastEmbed/ONNX, the gallery app's encoders) is the
 default and is what `FM_TEACH_MIN_SIM=0.80` / `FM_MATCH_MIN_SIM=0.75` are tuned for.
 
-Candidate upgrade: Meta Perception Encoder PE-Core-L14-336 (image + text). Decide with
+Candidate upgrade: Meta Perception Encoder PE-Core-L14-336 (image + text,
+`FM_EMBEDDER=pe`, OpenCLIP on the GPU, 1024-d, not gated). Decide with
 the Day 3 crop test: CLIP vs PE-Core vs DINOv2 on ~50 crops of your own tools, measuring
 same-object matching across both cameras. If the embedder changes, re-embed the `crops`
 collection and recalibrate both thresholds.

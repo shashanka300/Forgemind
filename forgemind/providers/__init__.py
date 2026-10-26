@@ -3,9 +3,12 @@ from forgemind.providers.base import ChatResult, Detection, ToolCall  # noqa: F4
 
 
 def build_embedder(settings):
-    from forgemind.providers.embedders import ClipEmbedder, HashEmbedder
+    from forgemind.providers.embedders import (ClipEmbedder, HashEmbedder,
+                                               PerceptionEncoderEmbedder)
     if settings.embedder == "hash":
         return HashEmbedder()
+    if settings.embedder == "pe":
+        return PerceptionEncoderEmbedder(cache_dir=str(settings.data_dir / "models"))
     return ClipEmbedder(cache_dir=str(settings.data_dir / "models"))
 
 
@@ -28,7 +31,15 @@ def build_segmenter(settings, embedder):
 
 
 def build_llm(settings):
-    kind = settings.llm_provider
+    llm = _build_llm(settings.llm_provider, settings)
+    fb = settings.fallback_provider
+    if fb and fb != settings.llm_provider:
+        from forgemind.providers.fallback import FallbackModel
+        llm = FallbackModel(llm, _build_llm(fb, settings), settings.fallback_cooldown)
+    return llm
+
+
+def _build_llm(kind, settings):
     if kind == "mock":
         from forgemind.providers.mock_llm import MockModel
         return MockModel()
@@ -40,8 +51,11 @@ def build_llm(settings):
                                  settings.agent_model, settings.worker_model, name="meta",
                                  reasoning_effort=settings.reasoning_effort)
     if kind == "compat":
+        # reasoning_effort is a Muse setting; local servers (llama.cpp) may reject it.
         return OpenAICompatModel(settings.compat_base_url, settings.compat_api_key,
                                  settings.compat_agent_model or settings.agent_model,
                                  settings.compat_worker_model or settings.compat_agent_model,
-                                 name="compat", reasoning_effort=settings.reasoning_effort)
-    raise ValueError(f"unknown FM_LLM_PROVIDER={kind}")
+                                 name="compat",
+                                 reasoning_effort="" if settings.llm_provider != "compat"
+                                 else settings.reasoning_effort)
+    raise ValueError(f"unknown LLM provider {kind!r}")
