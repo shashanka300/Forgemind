@@ -15,7 +15,7 @@ def build_segmenter(settings, embedder):
     if kind == "remote_sam":
         return s.RemoteSamSegmenter(settings.sam_url, settings.sam_token,
                                     settings.sam_min_score)
-    if kind == "sam3":   # only inside a GPU worker; nothing runs on your machine
+    if kind == "sam3":   # local GPU (or inside the Modal worker)
         return s.Sam3Segmenter(settings.sam_checkpoint, settings.sam_device,
                                settings.sam_min_score)
     if kind == "meta_sam":

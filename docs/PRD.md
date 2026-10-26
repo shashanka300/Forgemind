@@ -2,7 +2,7 @@
 
 **Event:** Meta Global AI Developer Hackathon (Cerebral Valley), Oct 26 – Nov 4, 2026
 **Track:** Indie developer · **Theme:** Push the Frontier (primary), Build for Your World (secondary)
-**Owner:** Shashanka B R · **Status:** Draft v1 · **Working name:** ForgeMind (original name; inspired by, but not branded as, any film character)
+**Owner:** Shashanka B R · **Status:** Draft v2 (Oct 27: API vs local model split, §7.3) · **Working name:** ForgeMind (original name; inspired by, but not branded as, any film character)
 
 ---
 
@@ -28,7 +28,7 @@ This project extends the **gallery memory app** already built on the DeepLearnin
 | Shutter → 2048 px capture into index | Save a high-res shot | `read_closeup()`: high-res frame for reading labels, meter displays, part numbers |
 | Access token + 30-day cookie, zrok HTTPS tunnel | Secure public link; HTTPS lets the browser use the camera | Same for both camera clients and the assistant UI |
 | Docker + Colima deploy (`deploy/gallery/`) | Reproducible run | Extended compose with perception + agent services |
-| Original repo pieces (YOLOE, Whisper, Nomic embed) | Robot perception, speech, text embedding | Whisper for speech-to-text fallback; Nomic for text memory embeddings; YOLOE as a fast fallback detector |
+| Original repo pieces (YOLOE, Whisper, Nomic embed) | Robot perception, speech, text embedding | Superseded by §7.3: YOLOE-26 as fast fallback detector; Whisper/Parakeet only as speech-to-text fallback |
 
 **What is new:** a second (static) camera, zones and localization, SAM 3.1 concept segmentation and tracking, an object/sighting registry, experiment memory, a reasoning agent on Meta's Muse models, voice in/out, safety watch, and report generation.
 
@@ -89,7 +89,7 @@ Existing assistants only know what you type or the single photo you upload. They
 | Technical ambition | Multi-camera concept tracking, cross-camera identity, event-sourced memory, agent with active perception |
 | Does it work | Single end-to-end demo on real hardware (two cameras + workstation), no faked steps |
 | Theme: Push the Frontier | Gives a "machine" persistent physical-world awareness; produces egocentric data a future robot could learn from |
-| Meta models used | Muse Wonder (video + audio + image reasoning, agent), Muse Spark (cheap subagents: logging, report, summaries), SAM 3.1 (concept segmentation and tracking), Muse Image (optional: annotated SOP figures), Meta open weights where useful |
+| Meta models used | Via Model API: Muse Wonder (agent), Muse Spark 1.3 (workers: display reading, reports), Muse Voice Transcribe (speech in), SAM 3.1 (on-demand checks). Meta open weights on the local GPU: SAM 3.1 (continuous segmentation + tracking), Perception Encoder (visual memory embeddings), Muse Glimmer (fallback agent / cheap worker). Muse Image optional (annotated SOP figures). See §7.3 |
 
 ---
 
@@ -101,11 +101,11 @@ Existing assistants only know what you type or the single photo you upload. They
 |---|---|---|
 | **Static camera** (USB webcam on the host, or an old phone fixed over the bench) | World camera for the bench; always on, low frame rate | Same Wi-Fi/LAN. USB webcam via OpenCV on the host (no browser HTTPS issue), or old phone opening the app link with `?role=static` |
 | **Mobile phone** (carried by user) | Body camera + mic + speaker + main UI | Same Wi-Fi when home; zrok HTTPS link works anywhere and is required for browser camera access |
-| **App server** (Mac or small cloud VM, CPU only) | Memory services, agent orchestration, CLIP embeddings | LAN; outbound to Meta Model API and hosted SAM |
-| **Hosted SAM 3.1** (Modal serverless GPU, partner credits) | Concept segmentation | HTTPS endpoint (`deploy/modal_sam.py`) |
-| **Meta Model API** | Muse Wonder / Muse Spark reasoning | HTTPS, OpenAI-compatible SDK |
+| **App server + GPU workstation** (Windows/WSL, RTX 5090 32 GB, 64 GB RAM) | Memory services, agent orchestration, local models: SAM 3.1, Perception Encoder, optional Muse Glimmer and TTS | LAN; outbound to Meta Model API |
+| **Meta Model API** (`api.meta.ai/v1`) | Muse Wonder / Spark reasoning, Muse Voice Transcribe, on-demand SAM 3.1 | HTTPS, OpenAI-compatible SDK; WebSocket for streaming speech |
+| **Hosted SAM 3.1 on Modal** (fallback only) | Segmentation if the workstation is unavailable | HTTPS endpoint (`deploy/modal_sam.py`) |
 
-No model runs on the user's machine: reasoning goes to the Meta Model API, and SAM 3.1 runs on a hosted GPU. The app server is CPU-only and runs on the Mac (or any small VM).
+Models are split by how often they run (§7.3): high-frequency, per-frame work runs on the local GPU; reasoning and speech recognition go to the Meta Model API. The workstation has to stay awake during the demo.
 
 ### 7.2 Architecture
 
@@ -113,12 +113,14 @@ No model runs on the user's machine: reasoning goes to the Meta Model API, and S
  STATIC CAM ──(1–2 fps, change-gated)──┐
                                        │
  PHONE CAM ──(5–10 fps while moving)───┼──► Ingest gateway (WebSocket / OpenCV)
- PHONE MIC ──(speech chunks)───────────┼──►   ├─ frame dedupe (hash / CLIP sim)
-                                       │      └─ zone detection (AprilTags)
+ PHONE MIC ──(audio stream)────────────┼──► Muse Voice Transcribe (API) ─► text
+                                       │   ├─ frame dedupe (hash / embedding sim)
+                                       │   └─ zone detection (AprilTags)
                                        ▼
-                   Perception service (app server → hosted SAM)
-               SAM 3.1 concept segmentation + tracking
-               CLIP crop embeddings (existing store)
+                   Perception service (local GPU)
+               SAM 3.1 open weights: concept segmentation + tracking
+               Perception Encoder crop embeddings (existing store)
+               [SAM 3.1 via Model API for on-demand checks]
                                        │  observations
                                        ▼
                          World memory (event-sourced)
@@ -129,14 +131,14 @@ No model runs on the user's machine: reasoning goes to the Meta Model API, and S
         └───────────────┴────────────────┴────────────────┴───────────────┘
                                        │ compact situation summary
                                        ▼
-                     Agent orchestrator (Muse Wonder)
+              Agent orchestrator (Muse Wonder / Spark; Glimmer fallback)
           tools: where_is · go_look_at · read_closeup · watch_bench ·
                  highlight · log_step · log_measurement · compare_sessions ·
                  resume_session · alert · generate_report
                  subagents (Muse Spark): logging, summarizing, report drafting
                                        │ validated actions
                                        ▼
-          Phone UI: voice reply (TTS) · live overlay highlights · alerts ·
+          Phone UI: voice reply (browser TTS / Kokoro) · live overlay · alerts ·
                     session timeline · memory inspector (view / correct / delete)
 ```
 
@@ -146,6 +148,37 @@ No model runs on the user's machine: reasoning goes to the Meta Model API, and S
 3. **Reasoning proposes, the app validates.** Tool calls are checked against schemas and current state before execution.
 4. **Provenance on every fact:** observed (which camera), user-stated, instrument reading, or model inference, each with a timestamp and confidence.
 5. **Interfaces are robot-ready:** `go_look_at(zone)` is executed by the user today and by a robot later, with no change to the agent.
+
+### 7.3 Model placement: API vs local
+
+**Rule:** anything that runs on every frame, or that the API doesn't offer, runs on the local GPU. Reasoning and speech recognition use the Meta Model API. Every slot stays behind the provider interfaces in `forgemind/providers/`, so moving a slot between API and local is a config change.
+
+**Meta Model API** (pricing from dev.meta.ai/docs/pricing-rate-limits, checked Oct 26, 2026)
+
+| Slot | Model | Price | Used for |
+|---|---|---|---|
+| Agent | Muse Wonder `muse-wonder-1.0` | $4 / $20 per 1M tokens in / out | Hard user turns and decisions |
+| Worker / default agent | Muse Spark `muse-spark-1.3` | $1.25 / $4.25 per 1M tokens | Most user turns, `read_closeup` display reading, report drafting |
+| Speech-to-text | Muse Voice Transcribe `muse-voice-transcribe-1.0` | $0.18 per audio hour | Streaming over `wss://api.meta.ai/v1/asr/realtime`; replaces browser speech recognition (unreliable outside Chrome on Android) |
+| Segmentation, on demand | SAM 3.1 `sam-3.1` | $2.50 per 1k images; $0.20 per 1k video frames (min 50) | Confirming a `where_is` result, close-ups, teaching. **Not per-frame**: the API takes one concept per request, so 12 concepts × one bench frame every 2 s is about $54/hour |
+| Image generation | Muse Image | $0.01 per image | Optional (F-OUT-3) |
+
+Contributor mode (Spark at about 12× cheaper) lets Meta train on prompts and images. Our images are frames of the user's bench, so it stays **off** unless we decide otherwise.
+
+The API has **no embeddings endpoint and no text-to-speech**. Those slots must be local.
+
+**Local GPU (RTX 5090, 32 GB)**
+
+| Slot | Choice | Alternatives | Notes |
+|---|---|---|---|
+| Continuous segmentation + tracking | **SAM 3.1 open weights** (`facebook/sam3.1`), ~4 GB FP16 | YOLOE-26 as a fast open-vocabulary gate (AGPL) | Same model as the API, so behaviour matches. Reuses the existing `Sam3Segmenter` (`FM_SEGMENTER=sam3`). Replaces `clip_grid`; Modal deploy becomes fallback only |
+| Visual memory embeddings (image + text) | **Meta Perception Encoder PE-Core-L14-336**, ~1 GB | SigLIP 2; DINOv2/v3 (image-only, same-object matching); current CLIP ViT-B/32 | Evidence on same-object matching is mixed (DINOv3 weak on a 2026 kitchen re-ID study). Decide with a test on ~50 crops of our own tools. Switching means recalibrating `FM_TEACH_MIN_SIM` / `FM_MATCH_MIN_SIM` |
+| Fallback agent / cheap worker | **Muse Glimmer 30B** (Apache 2.0), Q4 ~17 GB, ~75–84 tok/s on a 5090 via llama.cpp | — | Keeps the agent working if the API is slow, down or rate-limited. Cap context ~32K so it fits beside SAM + PE |
+| Text-to-speech | Browser `speechSynthesis` (today) | **Kokoro-82M** (CPU, Apache); Qwen3-TTS (GPU, best low-latency quality); Chatterbox-Turbo (voice cloning) | Upgrade only if the browser voice hurts the demo |
+| Speech-to-text fallback | Only if Voice Transcribe fails from India | Parakeet TDT 0.6B v3 (fastest, streaming); Qwen3-ASR-1.7B / Canary-Qwen 2.5B (most accurate English); Whisper large-v3-turbo | Speech/TTS rankings come from vendor blogs with conflicting numbers; verify locally |
+| Non-ML | AprilTags (OpenCV), change gate, SQLite, Qdrant Edge | — | Unchanged |
+
+**VRAM budget:** SAM 3.1 (~4 GB) + PE (~1 GB) + Glimmer Q4 with ~32K context (~20–24 GB) stays under 32 GB. If Glimmer isn't loaded there is plenty of headroom.
 
 ---
 
@@ -174,17 +207,18 @@ Priority: **P0** = required for the demo, **P1** = should have, **P2** = stretch
 ### 8.3 Perception
 | ID | Requirement | Priority |
 |---|---|---|
-| F-PER-1 | SAM 3.1 segments and tracks a configurable concept list (e.g. multimeter, soldering iron, screwdriver, hex key, PCB, breadboard, flux, hand, smoke) | P0 |
-| F-PER-2 | Each detected object crop is embedded with CLIP and stored in the existing Qdrant Edge store with metadata | P0 |
+| F-PER-1 | SAM 3.1 (open weights on the local GPU) segments and tracks a configurable concept list (e.g. multimeter, soldering iron, screwdriver, hex key, PCB, breadboard, flux, hand, smoke) | P0 |
+| F-PER-2 | Each detected object crop is embedded (Perception Encoder, or CLIP until the crop test decides) and stored in the existing Qdrant Edge store with metadata | P0 |
 | F-PER-3 | Track-level events emitted: appeared, moved (sub-region change), disappeared, interacted (hand overlap) | P0 |
 | F-PER-4 | Hazard states: soldering iron present + powered indicator/smoke + no hand nearby for N seconds | P1 |
-| F-PER-5 | Fallback detector (YOLOE from the original repo) if SAM latency is too high for the static stream | P2 |
+| F-PER-5 | Fallback detector (YOLOE-26) if local SAM latency is too high for the static stream | P2 |
+| F-PER-6 | On-demand SAM 3.1 via Model API for verification and close-ups; never per frame | P1 |
 
 ### 8.4 Object registry and cross-camera identity
 | ID | Requirement | Priority |
 |---|---|---|
 | F-OBJ-1 | One entity per real object; each entity has a list of sightings from either camera | P0 |
-| F-OBJ-2 | Match new observations to entities using concept label + CLIP crop similarity + zone + recency | P0 |
+| F-OBJ-2 | Match new observations to entities using concept label + crop embedding similarity + zone + recency | P0 |
 | F-OBJ-3 | **Teach identity** (extends "teach a name"): user shows an object and names it; 3–5 crops become its reference set | P0 |
 | F-OBJ-4 | Confidence decays with time since last sighting; the bench is "source of truth" from the static camera unless the phone has a newer, closer view | P0 |
 | F-OBJ-5 | User can correct identity or location via voice or the memory inspector | P1 |
@@ -204,7 +238,8 @@ Priority: **P0** = required for the demo, **P1** = should have, **P2** = stretch
 ### 8.6 Agent
 | ID | Requirement | Priority |
 |---|---|---|
-| F-AGT-1 | Muse Wonder as the main agent with voice, keyframes and the situation summary as input | P0 |
+| F-AGT-1 | Muse Wonder / Spark as the main agent with the transcript, keyframes and the situation summary as input | P0 |
+| F-AGT-7 | Fall back to Muse Glimmer on the local GPU when the Model API errors, times out or rate-limits | P1 |
 | F-AGT-2 | Muse Spark subagents for logging, summarizing and report drafting | P1 |
 | F-AGT-3 | Tool calls validated against JSON schemas and state before execution | P0 |
 | F-AGT-4 | Active perception: when an entity's confidence is below threshold or the bench changed, the agent may call `go_look_at` | P0 |
@@ -214,8 +249,8 @@ Priority: **P0** = required for the demo, **P1** = should have, **P2** = stretch
 ### 8.7 Phone UI and voice
 | ID | Requirement | Priority |
 |---|---|---|
-| F-UI-1 | Push-to-talk and a wake word option; speech-to-text via the Muse model's audio input or Whisper fallback | P0 |
-| F-UI-2 | Spoken replies (browser speech synthesis) plus on-screen text | P0 |
+| F-UI-1 | Push-to-talk and a wake word option; phone streams audio to the server, which relays it to Muse Voice Transcribe; local Parakeet/Whisper fallback | P0 |
+| F-UI-2 | Spoken replies (browser speech synthesis; Kokoro on the server if the browser voice is poor) plus on-screen text | P0 |
 | F-UI-3 | Live overlay: highlight a target object's mask/box on the phone view; arrow toward it if off-screen but in the current zone | P0 |
 | F-UI-4 | "Last seen" card: keyframe, zone, time, camera, confidence | P0 |
 | F-UI-5 | Session timeline (steps, measurements, alerts) | P1 |
@@ -277,7 +312,7 @@ configs(id, session_id, ts, json)
 watches(id, condition JSON, active BOOL, created_at)
 ```
 
-Qdrant Edge collections: `crops` (object crops, CLIP image vectors), `keyframes` (scene frames), `notes` (text memory, Nomic embeddings). Every vector payload carries `camera`, `zone`, `ts`, `entity_id`.
+Qdrant Edge collections: `crops` (object crops, image vectors from the chosen embedder, §7.3), `keyframes` (scene frames), `notes` (text memory). The collection records which embedder wrote it; changing embedder means re-embedding. Every vector payload carries `camera`, `zone`, `ts`, `entity_id`.
 
 ---
 
@@ -288,10 +323,10 @@ Qdrant Edge collections: `crops` (object crops, CLIP image vectors), `keyframes`
 | `where_is` answer latency | Under 2 s for memory lookup; spoken answer under 4 s |
 | Live highlight latency on phone | Under 500 ms from frame to overlay at the bench |
 | Safety alert latency | Under 10 s after the unattended threshold |
-| Static camera compute | Change-gated; SAM runs only on changed frames |
-| Model cost | Wonder only for user turns and decisions; Spark for background work; whole demo week within the provided credits |
+| Static camera compute | Change-gated; local SAM runs only on changed frames |
+| Model cost | No per-frame API calls. Spark by default, Wonder for hard turns; Voice Transcribe ~$0.18/h; SAM API on demand only. Target: whole build week under ~$50 of API spend |
 | Reliability | Pipelines restart independently; memory survives restarts (SQLite + Qdrant Edge on disk) |
-| Security | Reuse access token + cookie; zrok link treated as a password; no frames sent to the cloud except those the agent needs |
+| Security | Reuse access token + cookie; zrok link treated as a password; no frames sent to the cloud except those the agent needs (continuous perception is local); Contributor mode off |
 | Privacy | Pause and private mode; user can delete any memory; faces are not identified or stored as identities |
 
 ---
@@ -300,7 +335,7 @@ Qdrant Edge collections: `crops` (object crops, CLIP image vectors), `keyframes`
 
 | Component | Reuse | New |
 |---|---|---|
-| Visual store (CLIP + Qdrant Edge) | ✅ | metadata fields for camera, zone, entity |
+| Visual store (Qdrant Edge) | ✅ | metadata fields for camera, zone, entity; embedder swap (CLIP → PE) and threshold recalibration |
 | Teach a name → teach identity | ✅ | multi-camera matching rules |
 | Live viewfinder + recognize | ✅ | streaming to perception, overlay rendering |
 | Token, zrok, Docker | ✅ | extra services in compose |
@@ -310,7 +345,8 @@ Qdrant Edge collections: `crops` (object crops, CLIP image vectors), `keyframes`
 | Entity/sighting registry, event store | | ✅ |
 | Experiment memory | | ✅ |
 | Agent + tools on Muse models | | ✅ |
-| Voice in/out | partly (Whisper in original repo) | ✅ |
+| Voice in/out | partly (browser TTS) | ✅ Voice Transcribe streaming relay |
+| Local model hosting (SAM 3.1, PE, Glimmer) | `Sam3Segmenter` already written | ✅ |
 | Safety watch | | ✅ |
 | Reports | | ✅ |
 
@@ -321,10 +357,10 @@ Qdrant Edge collections: `crops` (object crops, CLIP image vectors), `keyframes`
 | Day | Date | Deliverable |
 |---|---|---|
 | 1 | Oct 26 | Kickoff; Meta Model API key tested from India; both camera streams reach the host; AprilTags printed |
-| 2 | Oct 27 | SAM 3.1 running on both streams for 6–8 concepts; zone detection |
-| 3 | Oct 28 | Entity/sighting registry; crops into the existing visual store; teach identity |
+| 2 | Oct 27 | API smoke tests (`forgemind check` + one SAM 3.1 call + one Voice Transcribe stream); SAM 3.1 open weights running locally on both streams for 6–8 concepts; zone detection |
+| 3 | Oct 28 | Embedder crop test (CLIP vs PE-Core vs DINOv2 on ~50 crops of our tools) → pick embedder and recalibrate thresholds; entity/sighting registry; teach identity |
 | 4 | Oct 29 | `where_is` end to end with keyframe card and live highlight |
-| 5 | Oct 30 | Agent on Muse Wonder with voice in/out; tools wired with validation |
+| 5 | Oct 30 | Agent on Muse Spark/Wonder with voice in (Voice Transcribe) and out; tools wired with validation; Glimmer fallback if time allows |
 | 6 | Oct 31 | Experiment memory: start/resume, steps, measurements, `read_closeup` |
 | 7 | Nov 1 | `go_look_at` active perception; user present/away; safety watch + phone alerts |
 | 8 | Nov 2 | `compare_sessions`, report generation (Spark subagents); memory inspector |
@@ -355,11 +391,15 @@ Qdrant Edge collections: `crops` (object crops, CLIP image vectors), `keyframes`
 
 | Risk | Mitigation |
 |---|---|
-| Meta Model API access from India or rate limits | Test on day 1; ask on Discord; Spark for most calls; hosted open-weights fallback on partner credits (Fireworks/Baseten/Modal) |
-| Hosted SAM 3.1 latency / cold starts | Change-gating; frames sent one at a time; fewer concepts per call; keep one warm container only during the demo; CLIP-grid fallback |
+| Meta Model API access from India or rate limits | Test on day 1; ask on Discord; Spark for most calls; Muse Glimmer on the local GPU as fallback agent; hosted open weights on partner credits (Fireworks/Baseten/Modal) |
+| SAM 3.1 API cost if used per frame (one concept per request) | Continuous perception runs locally; API only on demand (F-PER-6) |
+| Local SAM 3.1 latency on the 5090 | Change-gating; fewer concepts per pass; YOLOE-26 gate; Modal or API fallback |
+| Workstation sleeps or crashes during the demo | Keep-awake during demo; pipelines restart independently; memory on disk |
+| Embedder swap breaks tuned thresholds | Decide on Day 3 with a crop test; keep CLIP as default until then |
+| Voice Transcribe unavailable from India | Browser speech recognition (current) or local Parakeet/Whisper |
 | Small objects (hex keys) hard to segment | Taught identities, close camera framing, tool tray zones; choose demo objects of reasonable size |
 | Browser camera needs HTTPS | Phone uses the zrok HTTPS link (already built); static camera via USB/OpenCV avoids the browser |
-| Cross-camera mismatch | Combine concept + CLIP similarity + zone + recency; user correction in the inspector |
+| Cross-camera mismatch | Combine concept + embedding similarity + zone + recency; user correction in the inspector |
 | Agent talks too much | Strict proactive-speech policy (F-AGT-6) |
 | Privacy concerns with always-on cameras | Pause/private mode, local storage, deletion, no face identities |
 | Scope creep | P0 list is the demo; P1/P2 only after acceptance criteria pass |
@@ -369,11 +409,14 @@ Qdrant Edge collections: `crops` (object crops, CLIP image vectors), `keyframes`
 
 ## 17. Open questions
 
-1. SAM 3.1: via the Meta Model API if offered, otherwise hosted on Modal (`deploy/modal_sam.py`). Measure cold-start and per-frame latency on day 1.
-2. Does Muse Wonder accept streaming audio in the API, or should speech go through Whisper first?
+1. ~~SAM 3.1: API or Modal?~~ **Resolved (§7.3):** open weights on the local GPU for continuous perception; Model API on demand; Modal as fallback only. Still measure local per-frame latency on Day 2.
+2. ~~Streaming audio?~~ **Resolved:** Muse Voice Transcribe has a streaming WebSocket endpoint. Open: confirm it works from India and its latency for push-to-talk.
 3. Static camera: USB webcam on the host, or an old phone? (USB is simpler for always-on.)
-4. App server on the Mac, or on a small cloud VM so the bench camera link doesn't depend on the laptop being awake?
+4. ~~Mac or cloud VM?~~ **Resolved:** the RTX 5090 workstation (Windows/WSL) runs the app server and local models.
 5. Which demo build: voltage-divider breadboard test, a small soldering job, or a Raspberry Pi assembly?
+6. Embedder: PE-Core vs CLIP vs DINOv2 for same-object matching on our tools (Day 3 crop test).
+7. Does the SAM 3.1 API return confidence scores? The docs don't mention them; `FM_SAM_MIN_SCORE` may not apply to the API path.
+8. Is Kokoro worth adding, or is browser TTS good enough on the demo phone?
 
 ---
 

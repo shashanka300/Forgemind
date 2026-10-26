@@ -18,16 +18,24 @@ The whole loop runs **without any Meta API access** (mock model + CLIP-grid dete
 cameras → perception → memory → agent tools → phone UI with voice, overlays and alerts.
 Adding keys is a `.env` change, then `forgemind check`.
 
-**No model runs on your machine.** Reasoning goes to the Meta Model API (or a hosted
-open-weights endpoint), and SAM 3.1 runs on a hosted GPU (`deploy/modal_sam.py`, using
-Modal credits). The app server is CPU-only: FastAPI, SQLite, and CLIP embeddings for
-memory lookups. It runs on your Mac or any small VM.
+**Where the models run** (details in [`docs/PRD.md`](docs/PRD.md) §7.3): anything that
+runs on every frame, or that the Model API doesn't offer, runs on the local GPU
+workstation (RTX 5090). Reasoning and speech recognition go to the Meta Model API.
 
-## Quick start (Mac)
+| Meta Model API | Local GPU |
+|---|---|
+| Muse Spark 1.3 (default agent, workers) and Muse Wonder (hard turns) | SAM 3.1 open weights: continuous segmentation + tracking |
+| Muse Voice Transcribe: streaming speech-to-text | Embeddings: CLIP today, Perception Encoder if it wins the crop test |
+| SAM 3.1: on-demand checks only, never per frame | Muse Glimmer 30B: fallback agent if the API is unavailable |
+| | Text-to-speech: browser today, Kokoro optional |
+
+Modal-hosted SAM (`deploy/modal_sam.py`) is a fallback if the workstation is unavailable.
+
+## Quick start
 
 ```bash
 cd Forgemind
-uv venv --python 3.12 && source .venv/bin/activate
+uv venv --python 3.12 && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 uv pip install -e ".[vision,dev]"
 cp .env.example .env
 pytest -q                       # 20 tests, no downloads
@@ -72,7 +80,7 @@ forgemind/
   config.py              settings from .env
   runtime.py             wires everything together
   hub.py                 phone push channel + look/capture requests ("the body")
-  providers/             model slots: mock, Meta/OpenAI-compatible, CLIP, CLIP-grid, hosted SAM
+  providers/             model slots: mock, Meta/OpenAI-compatible, CLIP, CLIP-grid, local/hosted/API SAM
   memory/                SQLite event store, Qdrant Edge visual index, object registry, experiments
   perception/            frame pipeline, AprilTag zones, safety watch
   agent/                 tools (pydantic-validated), prompts, orchestrator loop
@@ -80,7 +88,7 @@ forgemind/
   server/                FastAPI app, phone page, zrok tunnel
   cameras/static_cam.py  USB/RTSP webcam client
 tests/                   memory, agent (incl. fake Meta endpoint), server + WebSocket
-deploy/                  modal_sam.py (hosted SAM 3.1), Dockerfile + compose for the app server
+deploy/                  modal_sam.py (fallback hosted SAM 3.1), Dockerfile + compose for the app server
 ```
 
 ## What came from the gallery app (Multi_meta)
@@ -107,7 +115,10 @@ deploy/                  modal_sam.py (hosted SAM 3.1), Dockerfile + compose for
 ## Known limits of the skeleton
 
 - `clip_grid` boxes are tile-sized and it confuses look-alike tools; it's there to wire
-  things up until hosted SAM 3.1 is deployed. It's ~1 s per frame on a laptop CPU.
-- `deploy/modal_sam.py` hasn't been deployed yet (needs your Modal account and SAM access).
+  things up until SAM 3.1 runs locally (`FM_SEGMENTER=sam3`). It's ~1 s per frame on a CPU.
+- Not built yet: local SAM 3.1 hasn't been tested on the workstation, the SAM 3.1 API
+  adapter (`meta_sam`) is a stub, Voice Transcribe streaming, the Perception Encoder
+  embedder, and automatic fallback to Muse Glimmer. See
+  [`docs/META_INTEGRATION.md`](docs/META_INTEGRATION.md).
 - The mock model only matches fixed phrasings and cannot read displays.
 - Disappearance is only inferred by the bench camera (the phone sees too little at once).
