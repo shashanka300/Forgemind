@@ -80,7 +80,7 @@ hf auth login
 # .env
 FM_SEGMENTER=sam3
 FM_SAM_DEVICE=cuda
-FM_SAM_CHECKPOINT=          # empty = the package's default download
+FM_SAM_CHECKPOINT=sam3.1    # sam3.1 (default) | sam3 | path to a .pt file
 FM_SAM_MIN_SCORE=0.5
 ```
 

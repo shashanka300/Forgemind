@@ -24,8 +24,8 @@ Where the build stands and what to do next. Update this at the end of each work 
 
 ## Next steps (in order)
 
-1. **SAM follow-ups:** decide on the 3.1 checkpoint as default (`FM_SAM_CHECKPOINT`,
-   user asked; awaiting go-ahead). Tune concept names and the 0.5 cutoff on photos of
+1. **SAM follow-ups:** the 3.1 checkpoint is now the default (`FM_SAM_CHECKPOINT=sam3.1`;
+   the "missing convs.3 keys" message at load is harmless, see `Sam3Segmenter`). Tune concept names and the 0.5 cutoff on photos of
    the user's own bench ("soldering iron" vs "soldering station"). Benchmark script:
    `sam_bench.py` (scratchpad; move into the repo if kept). `Sam3Segmenter` now runs
    under bf16 autocast (required).

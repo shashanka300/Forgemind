@@ -180,7 +180,7 @@ The API has **no embeddings endpoint and no text-to-speech**. Those slots must b
 | Speech-to-text fallback | Only if Voice Transcribe fails from India | Parakeet TDT 0.6B v3 (fastest, streaming); Qwen3-ASR-1.7B / Canary-Qwen 2.5B (most accurate English); Whisper large-v3-turbo | Speech/TTS rankings come from vendor blogs with conflicting numbers; verify locally |
 | Non-ML | AprilTags (OpenCV), change gate, SQLite, Qdrant Edge | — | Unchanged |
 
-**SAM checkpoint:** the per-frame image model can load either `facebook/sam3` or the detector half of `facebook/sam3.1` (`FM_SAM_CHECKPOINT`). On two test bench photos both gave the same detections (scores within ±0.03) at ~490 ms for 12 concepts and 4.1 GB VRAM. SAM 3.1's real gain is its multiplex video tracker, a later option for stable object ids on the bench camera.
+**SAM checkpoint:** the per-frame image model loads the detector half of `facebook/sam3.1` by default (`FM_SAM_CHECKPOINT=sam3.1`; `sam3` or a .pt path also work). On two test bench photos both gave the same detections (scores within ±0.03) at ~490 ms for 12 concepts and 4.1 GB VRAM. SAM 3.1's real gain is its multiplex video tracker, a later option for stable object ids on the bench camera.
 
 **VRAM budget:** SAM 3.1 (~4 GB) + PE (~1 GB) + Glimmer Q4 with ~32K context (~20–24 GB) stays under 32 GB. If Glimmer isn't loaded there is plenty of headroom.
 

@@ -105,13 +105,20 @@ class Sam3Segmenter:
     (FM_SEGMENTER=sam3), or inside the hosted Modal worker (deploy/modal_sam.py).
     Needs torch + the sam3 package and the gated checkpoint (Hugging Face login).
 
-    Uses the SAM 3 *image* model (facebook/sam3); the 3.1 checkpoint is the
-    video tracker. The model expects bfloat16 autocast on CUDA, as in Meta's
-    examples; without it the first linear layer fails on a dtype mismatch.
+    `checkpoint` is "sam3.1" (default), "sam3", or a path to a .pt file. The
+    per-image model loads the *detector* half of the checkpoint; for "sam3.1"
+    that is the retrained 3.1 detector inside sam3.1_multiplex.pt (its video
+    tracker is not used here). The sam3 package then reports four missing
+    `vision_backbone.convs.3` keys: that neck level is computed but dropped by
+    the image model (scalp=1), so the warning is harmless.
+
+    The model expects bfloat16 autocast on CUDA, as in Meta's examples;
+    without it the first linear layer fails on a dtype mismatch.
     """
     name = "sam3"
+    HF_VERSIONS = ("sam3.1", "sam3")
 
-    def __init__(self, checkpoint="", device="cuda", min_score=0.5):
+    def __init__(self, checkpoint="sam3.1", device="cuda", min_score=0.5):
         try:
             from sam3.model.sam3_image_processor import Sam3Processor
             from sam3.model_builder import build_sam3_image_model
@@ -119,8 +126,12 @@ class Sam3Segmenter:
             raise RuntimeError(
                 "FM_SEGMENTER=sam3 but the sam3 package is not installed. "
                 "See docs/META_INTEGRATION.md, or set FM_SEGMENTER=clip_grid.") from e
-        kw = {"checkpoint_path": checkpoint} if checkpoint else {}
-        self.model = build_sam3_image_model(**kw)
+        checkpoint = checkpoint or "sam3.1"
+        if checkpoint in self.HF_VERSIONS:
+            from sam3.model_builder import download_ckpt_from_hf
+            checkpoint = download_ckpt_from_hf(version=checkpoint)
+        self.checkpoint = checkpoint
+        self.model = build_sam3_image_model(checkpoint_path=checkpoint, load_from_HF=False)
         if hasattr(self.model, "to"):
             self.model = self.model.to(device)
         self.processor = Sam3Processor(self.model)

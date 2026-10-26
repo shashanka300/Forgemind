@@ -55,7 +55,7 @@ class Settings:
     segmenter: str = "clip_grid"
     sam_url: str = ""
     sam_token: str = ""
-    sam_checkpoint: str = ""
+    sam_checkpoint: str = "sam3.1"
     sam_device: str = "cuda"
     sam_min_score: float = 0.5
     embedder: str = "clip"
@@ -96,7 +96,7 @@ class Settings:
             segmenter=_env("FM_SEGMENTER", "clip_grid").lower(),
             sam_url=_env("FM_SAM_URL"),
             sam_token=_env("FM_SAM_TOKEN"),
-            sam_checkpoint=_env("FM_SAM_CHECKPOINT"),
+            sam_checkpoint=_env("FM_SAM_CHECKPOINT", "sam3.1"),
             sam_device=_env("FM_SAM_DEVICE", "cuda"),
             sam_min_score=float(_env("FM_SAM_MIN_SCORE", "0.5")),
             embedder=_env("FM_EMBEDDER", "clip").lower(),
