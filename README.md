@@ -10,7 +10,7 @@ is unsafe.
 > point the phone there. The same requests can drive a robot later.
 
 Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026). Full spec:
-[`docs/PRD.md`](docs/PRD.md). Plugging in Meta's models: [`docs/META_INTEGRATION.md`](docs/META_INTEGRATION.md).
+[`docs/PRD.md`](docs/PRD.md). Current state and next steps: [`docs/HANDOFF.md`](docs/HANDOFF.md). Plugging in Meta's models: [`docs/META_INTEGRATION.md`](docs/META_INTEGRATION.md).
 
 ## Status
 
