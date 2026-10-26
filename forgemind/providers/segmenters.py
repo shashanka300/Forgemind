@@ -105,8 +105,9 @@ class Sam3Segmenter:
     (FM_SEGMENTER=sam3), or inside the hosted Modal worker (deploy/modal_sam.py).
     Needs torch + the sam3 package and the gated checkpoint (Hugging Face login).
 
-    TODO(day 1): confirm the import paths and output keys against the
-    version the worker installs; SAM 3.1 may ship a different builder name.
+    Uses the SAM 3 *image* model (facebook/sam3); the 3.1 checkpoint is the
+    video tracker. The model expects bfloat16 autocast on CUDA, as in Meta's
+    examples; without it the first linear layer fails on a dtype mismatch.
     """
     name = "sam3"
 
@@ -123,14 +124,20 @@ class Sam3Segmenter:
         if hasattr(self.model, "to"):
             self.model = self.model.to(device)
         self.processor = Sam3Processor(self.model)
+        self.device = device
         self.min_score = min_score
         self._lock = threading.Lock()
 
     def segment(self, image, concepts):  # pragma: no cover - needs the GPU stack
+        import contextlib
+
+        import torch
         img = image.convert("RGB")
         w, h = img.size
         dets = []
-        with self._lock:
+        amp = (torch.autocast("cuda", dtype=torch.bfloat16) if str(self.device).startswith("cuda")
+               else contextlib.nullcontext())
+        with self._lock, torch.inference_mode(), amp:
             state = self.processor.set_image(img)
             for concept in concepts:
                 out = self.processor.set_text_prompt(state=state, prompt=concept)
@@ -141,7 +148,8 @@ class Sam3Segmenter:
                         continue
                     x0, y0, x1, y1 = [float(v) for v in boxes[k]]   # pixel xyxy
                     m = masks[k]
-                    m = m.detach().cpu().numpy() if hasattr(m, "detach") else np.asarray(m)
+                    m = (m.detach().float().cpu().numpy() if hasattr(m, "detach")
+                         else np.asarray(m))
                     dets.append(Detection(concept=concept, score=s, mask=m.squeeze() > 0.5,
                                           box=(x0 / w, y0 / h, x1 / w, y1 / h)))
         return nms(dets)

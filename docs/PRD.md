@@ -2,7 +2,7 @@
 
 **Event:** Meta Global AI Developer Hackathon (Cerebral Valley), Oct 26 – Nov 4, 2026
 **Track:** Indie developer · **Theme:** Push the Frontier (primary), Build for Your World (secondary)
-**Owner:** Shashanka B R · **Status:** Draft v2 (Oct 27: API vs local model split, §7.3) · **Working name:** ForgeMind (original name; inspired by, but not branded as, any film character)
+**Owner:** Shashanka B R · **Status:** Draft v3 (Oct 27: API vs local model split, §7.3; lessons from the personal health agent paper, §7.4 and §15.1) · **Working name:** ForgeMind (original name; inspired by, but not branded as, any film character)
 
 ---
 
@@ -148,6 +148,8 @@ Models are split by how often they run (§7.3): high-frequency, per-frame work r
 3. **Reasoning proposes, the app validates.** Tool calls are checked against schemas and current state before execution.
 4. **Provenance on every fact:** observed (which camera), user-stated, instrument reading, or model inference, each with a timestamp and confidence.
 5. **Interfaces are robot-ready:** `go_look_at(zone)` is executed by the user today and by a robot later, with no change to the agent.
+6. **Live turns stay one agent; slow work may be orchestrated** (§7.4).
+7. **Gaps are data, not something the model must notice:** tools report what is missing or stale explicitly (F-AGT-8).
 
 ### 7.3 Model placement: API vs local
 
@@ -178,7 +180,24 @@ The API has **no embeddings endpoint and no text-to-speech**. Those slots must b
 | Speech-to-text fallback | Only if Voice Transcribe fails from India | Parakeet TDT 0.6B v3 (fastest, streaming); Qwen3-ASR-1.7B / Canary-Qwen 2.5B (most accurate English); Whisper large-v3-turbo | Speech/TTS rankings come from vendor blogs with conflicting numbers; verify locally |
 | Non-ML | AprilTags (OpenCV), change gate, SQLite, Qdrant Edge | — | Unchanged |
 
+**SAM checkpoint:** the per-frame image model can load either `facebook/sam3` or the detector half of `facebook/sam3.1` (`FM_SAM_CHECKPOINT`). On two test bench photos both gave the same detections (scores within ±0.03) at ~490 ms for 12 concepts and 4.1 GB VRAM. SAM 3.1's real gain is its multiplex video tracker, a later option for stable object ids on the bench camera.
+
 **VRAM budget:** SAM 3.1 (~4 GB) + PE (~1 GB) + Glimmer Q4 with ~32K context (~20–24 GB) stays under 32 GB. If Glimmer isn't loaded there is plenty of headroom.
+
+### 7.4 Lessons from the personal health agent paper
+
+Source: Heydari et al., "The anatomy of a personal health agent", Nature 2026 (doi:10.1038/s41586-026-11161-8). Google built a three-specialist agent (data science, domain expert, coach) with an orchestrator that routes, reflects and keeps a memory, and evaluated it with 7,000+ human ratings. What we take, and what we don't:
+
+| Finding in the paper | What ForgeMind does with it |
+|---|---|
+| The orchestrated multi-agent system won on quality but averaged 6.5 model calls and 205 s per turn (single agent: 3 calls, 36 s) | **Not for live turns**: our spoken-answer target is under 4 s, so live turns stay one agent calling tools. The orchestrated pattern (main worker, helpers only when needed, review before answering) is used for slow work: `generate_report`, `compare_sessions` |
+| Dynamic routing beat asking every specialist in parallel, on cost and quality | The report path calls the worker only for the parts it needs |
+| The biggest gain was spotting missing data: 5% → 66% with an explicit data-sufficiency step | Tools return explicit `missing` / `stale` fields instead of trusting the model to notice (F-AGT-8) |
+| Exact numbers belong in code (plan → code → self-correct raised pass rate 58% → 79%) | Already our rule ("model proposes, app validates"); add a deterministic citation check on reports (F-OUT-5) |
+| Memory of goals, barriers and preferences after each turn kept multi-session coherence | User notes memory (F-EXP-9) |
+| Coaching worked better when it gathered context before recommending | Reinforces F-AGT-6; `go_look_at` says why before asking the user to move |
+| Simulated users driven by personas matched live-study results; LLM graders were validated against humans | Evaluation harness (§15.1) |
+| Experts saw quality gaps end users missed (average +17.1% vs +4.6%) | Show measured numbers in the demo, not only a smooth run |
 
 ---
 
@@ -234,12 +253,14 @@ Priority: **P0** = required for the demo, **P1** = should have, **P2** = stretch
 | F-EXP-6 | Compare two sessions: configuration diff, measurement diff, deviations | P0 |
 | F-EXP-7 | Resume: reconstruct last state, list incomplete steps, propose the next action | P0 |
 | F-EXP-8 | Learn a procedure (SOP) from a completed session and check later sessions against it | P1 |
+| F-EXP-9 | **User notes memory:** after each turn, the worker model extracts stated goals, obstacles and preferences (e.g. "goal: finish the divider today", "keeps hex keys in the drawer") into the `notes` collection with the source turn; `resume_session` and the situation summary include the relevant notes. Runs off the reply path so it adds no latency | P1 |
 
 ### 8.6 Agent
 | ID | Requirement | Priority |
 |---|---|---|
 | F-AGT-1 | Muse Wonder / Spark as the main agent with the transcript, keyframes and the situation summary as input | P0 |
 | F-AGT-7 | Fall back to Muse Glimmer on the local GPU when the Model API errors, times out or rate-limits | P1 |
+| F-AGT-8 | **Explicit gaps:** `where_is`, `resume_session`, `compare_sessions` and `generate_report` return `missing` (planned measurements or steps with no value) and `stale` (entities below the confidence threshold) fields; the prompt tells the agent to state gaps rather than fill them | P0 |
 | F-AGT-2 | Muse Spark subagents for logging, summarizing and report drafting | P1 |
 | F-AGT-3 | Tool calls validated against JSON schemas and state before execution | P0 |
 | F-AGT-4 | Active perception: when an entity's confidence is below threshold or the bench changed, the agent may call `go_look_at` | P0 |
@@ -272,6 +293,7 @@ Priority: **P0** = required for the demo, **P1** = should have, **P2** = stretch
 | F-OUT-2 | SOP from a session with keyframes per step | P1 |
 | F-OUT-3 | Annotated figures from keyframes with Muse Image | P2 |
 | F-OUT-4 | Export Markdown/PDF | P1 |
+| F-OUT-5 | **Citation check:** before a report is saved, code checks that every number and measured value in it cites an `[E#]` event that exists and carries that value; failures are sent back to the worker once, then flagged in the report. No extra model call when the draft is clean | P0 |
 
 ---
 
@@ -312,7 +334,7 @@ configs(id, session_id, ts, json)
 watches(id, condition JSON, active BOOL, created_at)
 ```
 
-Qdrant Edge collections: `crops` (object crops, image vectors from the chosen embedder, §7.3), `keyframes` (scene frames), `notes` (text memory). The collection records which embedder wrote it; changing embedder means re-embedding. Every vector payload carries `camera`, `zone`, `ts`, `entity_id`.
+Qdrant Edge collections: `crops` (object crops, image vectors from the chosen embedder, §7.3), `keyframes` (scene frames), `notes` (text memory: user goals, obstacles and preferences from F-EXP-9, each with its source turn and time). The collection records which embedder wrote it; changing embedder means re-embedding. Every vector payload carries `camera`, `zone`, `ts`, `entity_id`.
 
 ---
 
@@ -361,10 +383,10 @@ Qdrant Edge collections: `crops` (object crops, image vectors from the chosen em
 | 3 | Oct 28 | Embedder crop test (CLIP vs PE-Core vs DINOv2 on ~50 crops of our tools) → pick embedder and recalibrate thresholds; entity/sighting registry; teach identity |
 | 4 | Oct 29 | `where_is` end to end with keyframe card and live highlight |
 | 5 | Oct 30 | Agent on Muse Spark/Wonder with voice in (Voice Transcribe) and out; tools wired with validation; Glimmer fallback if time allows |
-| 6 | Oct 31 | Experiment memory: start/resume, steps, measurements, `read_closeup` |
+| 6 | Oct 31 | Experiment memory: start/resume, steps, measurements, `read_closeup`; explicit `missing` / `stale` fields (F-AGT-8) |
 | 7 | Nov 1 | `go_look_at` active perception; user present/away; safety watch + phone alerts |
-| 8 | Nov 2 | `compare_sessions`, report generation (Spark subagents); memory inspector |
-| 9 | Nov 3 | Integration, latency tuning, demo rehearsal, fallback paths |
+| 8 | Nov 2 | `compare_sessions`, report generation (Spark subagents) with citation check (F-OUT-5); user notes memory (F-EXP-9); memory inspector |
+| 9 | Nov 3 | Integration, latency tuning, demo rehearsal, fallback paths; evaluation harness run (§15.1) and numbers for the demo |
 | 10 | Nov 4 | Demo video, README, architecture diagram, submission |
 
 ---
@@ -387,6 +409,15 @@ Qdrant Edge collections: `crops` (object crops, image vectors from the chosen em
 
 ---
 
+### 15.1 Evaluation harness (adapted from the personal health agent paper)
+
+- **Per-component checks**, each with a fixed script: `where_is` correct-zone rate (20 queries), cross-camera identity precision on taught objects, safety-alert latency and false alarms, report citation validity (F-OUT-5).
+- **Simulated users:** Muse Glimmer on the local GPU plays the user from scripted scenarios (personas such as "resuming yesterday's divider test", "lost the hex key", "left the iron on"), against the full agent with recorded bench and phone frames replayed. Repeatable runs, no API cost for the user side.
+- **Graders:** rubric scoring by a model (e.g. "did it state the missing value instead of inventing one?") is used only after hand-checking a sample of its scores against our own ratings.
+- **Demo output:** the numbers from the latest run go into the submission video and README.
+
+---
+
 ## 16. Risks and mitigations
 
 | Risk | Mitigation |
@@ -401,6 +432,8 @@ Qdrant Edge collections: `crops` (object crops, image vectors from the chosen em
 | Browser camera needs HTTPS | Phone uses the zrok HTTPS link (already built); static camera via USB/OpenCV avoids the browser |
 | Cross-camera mismatch | Combine concept + embedding similarity + zone + recency; user correction in the inspector |
 | Agent talks too much | Strict proactive-speech policy (F-AGT-6) |
+| Agent invents values when data is missing (the paper's biggest failure mode) | Explicit `missing` / `stale` fields (F-AGT-8); citation check on reports (F-OUT-5) |
+| Multi-step review makes replies slow | Orchestration only for reports and comparisons; live turns stay one agent (§7.4) |
 | Privacy concerns with always-on cameras | Pause/private mode, local storage, deletion, no face identities |
 | Scope creep | P0 list is the demo; P1/P2 only after acceptance criteria pass |
 | Employer/IP constraints | Check official rules and IBM outside-activity guidance before building |
