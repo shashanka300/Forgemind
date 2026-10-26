@@ -112,6 +112,24 @@ def cmd_check(args):
     print("OK: the model API answers and returns tool calls.")
 
 
+def cmd_calibrate(args):
+    from forgemind.calibrate import run
+    from forgemind.config import Settings
+    s = Settings.from_env()
+    if args.segmenter:
+        s.segmenter = args.segmenter
+    out = args.out or str(s.data_dir / "calibration.json")
+    s.data_dir.mkdir(parents=True, exist_ok=True)
+    rep = run(s, args.photos, embedders=args.embedders.split(","), target=args.precision,
+              crop=not args.no_crop, out=out)
+    best = max(rep["results"], key=lambda r: ((r["identification"]["at_target"] or {})
+                                              .get("recall", 0), r["auc"] or 0))
+    print(f"\nbest: {best['embedder']} -> FM_EMBEDDER={best['embedder']} "
+          + " ".join(f"{k}={v}" for k, v in best["recommend"].items()))
+    if best["embedder"] in ("dinov2", "dinov3"):
+        print("note: DINO is image-only; text search (where_is by description) still needs clip/pe.")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="forgemind", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -132,6 +150,14 @@ def main(argv=None):
     p = sub.add_parser("tags", help="printable AprilTag sheet for the zones")
     p.add_argument("--out", default="zone-tags.png")
     p.set_defaults(fn=cmd_tags)
+    p = sub.add_parser("calibrate", help="embedder crop test: pick embedder + thresholds")
+    p.add_argument("photos", help="folder with one subfolder per object (see forgemind/calibrate.py)")
+    p.add_argument("--embedders", default="clip,pe,dinov2")
+    p.add_argument("--precision", type=float, default=0.90, help="target identification precision")
+    p.add_argument("--segmenter", default="sam3", help="crops photos to the object (none = whole photo)")
+    p.add_argument("--no-crop", action="store_true", help="photos are already crops")
+    p.add_argument("--out", help="JSON report path (default: <data dir>/calibration.json)")
+    p.set_defaults(fn=cmd_calibrate)
     p = sub.add_parser("check", help="test the configured model API")
     p.set_defaults(fn=cmd_check)
     args = ap.parse_args(argv)

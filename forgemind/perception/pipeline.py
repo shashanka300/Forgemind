@@ -6,6 +6,7 @@
     mobile phone  : zone from AprilTags, every frame matched against memory,
                     resolves pending look requests, feeds the live overlay
 """
+import collections
 import io
 import threading
 import time
@@ -25,6 +26,8 @@ CHANGE_FRACTION = 0.004
 PIXEL_DELTA = 25
 MISSES_BEFORE_GONE = 3
 MAX_CROP_PX = 448
+# Recent phone frames kept for teaching (several views of one object).
+RECENT_FRAMES = 8
 
 
 def region_of(box):
@@ -56,6 +59,7 @@ class Perception:
         self.phone_zone = ZoneTracker(settings.zones)
         self.gate = ChangeGate()
         self.latest = {}             # camera -> {"ts", "image", "detections", "zone"}
+        self.recent = collections.deque(maxlen=RECENT_FRAMES)   # phone frames, newest last
         self.last_processed = {}     # camera -> ts
         self.last_keyframe = {}      # camera -> ts
         self.misses = {}             # entity id -> consecutive static misses
@@ -96,6 +100,11 @@ class Perception:
 
     def zone_for(self, camera, ts=None):
         return self.s.static_zone if camera == "static" else self.phone_zone.current(ts)
+
+    def recent_frames(self, max_age=4.0, now=None):
+        """Phone frames from the last `max_age` seconds, newest first."""
+        now = now or time.time()
+        return [f for f in reversed(self.recent) if now - f["ts"] <= max_age]
 
     def current_image(self, camera):
         item = self.latest.get(camera)
@@ -178,6 +187,8 @@ class Perception:
 
         self.latest[camera] = {"ts": ts, "image": image, "detections": out_dets, "zone": zone,
                                "keyframe": keyframe}
+        if camera == "mobile":
+            self.recent.append(self.latest[camera])
         return {"camera": camera, "zone": zone, "detections": out_dets, "events": events,
                 "keyframe": keyframe, "ms": round((time.perf_counter() - t0) * 1000)}
 

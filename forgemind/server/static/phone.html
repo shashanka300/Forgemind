@@ -486,6 +486,9 @@ $("teachBtn").onclick = async () => {
   if (!running) return toast("Start the camera and point it at the object first.");
   const name = prompt("What should I call the object in front of the camera?");
   if (!name) return;
+  // The name dialog pauses the frame loop; collect a few fresh views first.
+  toast("Hold it in view and turn it slightly…", "look");
+  await new Promise(res => setTimeout(res, 2500));
   const r = await post("/api/teach", {name});
   addMsg("a", r.summary || r.error); speak(r.summary || r.error); refresh();
 };

@@ -69,3 +69,35 @@ def test_private_mode_stores_nothing(rt):
     out = rt.perception.process("static", scene([("multimeter", .4, .4, .6, .6)]), ts=1000.0)
     assert out["detections"] and out["events"] == [] and out["keyframe"] is None
     assert rt.memory.registry.list() == []
+
+
+def test_teach_uses_several_recent_views(rt):
+    now = time.time()
+    for i, x in enumerate((.40, .42, .38)):
+        rt.perception.process("mobile", scene([("hex key", x, .4, x + .2, .6)], tag=2),
+                              ts=now - 2 + i)
+    out = rt.agent.tools.run("teach_object", {"name": "2.5 mm hex key"})
+    assert out["views"] == ["detected"] * 3 and out["entity"]["examples"] == 3
+    assert "3 views" in out["summary"] and "Turn it" not in out["summary"]
+    assert out["entity"]["concept"] == "hex key"
+
+
+def test_teach_asks_segmenter_when_frame_missed_it(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    rt.perception.recent[-1]["detections"] = []          # the live detector missed it
+    out = rt.agent.tools.run("teach_object", {"name": "small key", "concept": "hex key"})
+    assert out["views"] == ["asked"] and out["entity"]["concept"] == "hex key"
+    assert "Turn it" in out["summary"]
+
+
+def test_teach_centre_fallback_says_so(rt):
+    rt.perception.process("mobile", scene([], tag=2), ts=time.time())
+    out = rt.agent.tools.run("teach_object", {"name": "mystery part"})
+    assert out["views"] == ["centre"] and "middle of the view" in out["summary"]
+
+
+def test_teach_ignores_old_frames(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2),
+                          ts=time.time() - 30)
+    out = rt.agent.tools.run("teach_object", {"name": "old key"})
+    assert len(out["views"]) == 1          # falls back to the latest frame only

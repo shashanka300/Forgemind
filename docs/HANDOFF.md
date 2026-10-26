@@ -2,14 +2,16 @@
 
 Where the build stands and what to do next. Update this at the end of each work session.
 
-**Last updated:** Oct 27, 2026 (Day 2). **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
-**Branch:** `main`. Local commit `e2db319` is not pushed yet (`ac36304` is on GitHub).
+**Last updated:** Oct 27, 2026 (Day 3 started). **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
+**Branch:** `main`. Check `git status -sb` for unpushed commits.
 
 ## Status
 
 | Piece | State | Verified how |
 |---|---|---|
-| Full loop in mock mode (cameras → memory → agent → phone) | Works | 29 tests; phone page loads, chat round trip in browser |
+| Full loop in mock mode (cameras → memory → agent → phone) | Works | 37 tests; phone page loads, chat round trip in browser |
+| Object registry + teach identity (F-OBJ-1..5) | Existed in skeleton; teaching improved | Teach now takes up to 3 views from the last 4 s of phone frames, asks SAM for the named concept if the frame's detections missed it, and says when it fell back to the centre of the view. Tests only (colour-block fixtures) |
+| Embedder calibration (`forgemind calibrate`) | Built | Synthetic smoke set only (see below). Real answer needs the user's photos |
 | SAM 3.1 via Model API (`FM_SEGMENTER=meta_sam`) | Built | Fake endpoint only |
 | Voice Transcribe relay (`/ws/asr`, phone AudioWorklet → server → Meta) | Built | Fake endpoint only; mic path not tried on a phone |
 | LLM fallback to Glimmer (`FM_FALLBACK_PROVIDER=compat`) | Built | Stub models only; no Glimmer server yet |
@@ -33,13 +35,34 @@ Where the build stands and what to do next. Update this at the end of each work 
    (confirm the reply format and that `c` scores come back); one `/ws/asr` utterance from
    a phone over zrok (confirm it works from India, the `endStream` message shape, and
    time to final transcript).
-3. **Embedder crop test (Day 3):** user to photograph ~50 crops of their own tools from
-   both camera positions. Compare CLIP vs PE-Core vs DINOv2 on same-object matching, pick
-   one, recalibrate `FM_TEACH_MIN_SIM` / `FM_MATCH_MIN_SIM`.
+3. **Embedder crop test (Day 3), waiting on the user's photos.** Protocol:
+   - 8–10 of the demo objects, **including look-alikes** (two screwdrivers, two hex keys).
+   - One folder per object, named `<concept>-<which>` (e.g. `hex_key-2.5mm`,
+     `screwdriver-red`); the part before `-` is what SAM is asked for.
+   - In each: 3 phone photos (held close, different angles, like teaching) named
+     `phone_1.jpg`… and 2–3 from the bench-camera position (above the bench, at its
+     distance) named `bench_1.jpg`….
+   - Run: `forgemind calibrate <folder> --embedders clip,pe,dinov2,dinov3`. It crops with
+     SAM, prints per-embedder AUC, top-1 and the threshold for 90% precision, and writes
+     `calibration.json`. Then set `FM_EMBEDDER` and both thresholds from its output.
+   - **Smoke result** (synthetic: one workbench photo, 13 objects incl. 6 red pliers and 5
+     screwdrivers, "bench" views = downscaled/rotated/relit crops; optimistic):
+     | embedder | AUC | look-alike AUC | top-1 | recall @ P≥0.9 (thr) |
+     |---|---|---|---|---|
+     | clip (current) | 0.744 | 0.606 | 0.31 | 0.08 (0.898) |
+     | pe | 0.863 | 0.749 | 0.58 | 0.19 (0.871) |
+     | dinov2 | 0.904 | 0.746 | 0.65 | 0.27 (0.734) |
+     | dinov3 | 0.897 | 0.767 | 0.77 | 0.54 (0.764) |
+     Takeaways: CLIP B/32 at 0.80 would mis-identify often; DINO leads on identity but is
+     image-only, so if it wins on real photos the registry needs two vectors per crop
+     (DINO for identity, PE/CLIP for text search). Near-identical objects (the red
+     pliers) can't be told apart from one crop by any of them: identity must lean on
+     place and recency for those, and the demo should use visually distinct objects.
 4. **Glimmer server:** download the Q4 GGUF, serve with llama.cpp (`-c 32768`), point
    `FM_COMPAT_*` at it, confirm tool calls with `forgemind check`.
-5. Then back on the PRD milestones (§13): Day 3 registry + teach identity, Day 4
-   `where_is` end to end.
+5. **Day 3 remaining:** decide embedder from the real crop test; if DINO wins, add a
+   second (identity) vector to the registry; recalibrate thresholds; try teach on the
+   real phone over zrok. Then Day 4: `where_is` end to end.
 6. **Added from the personal health agent paper** (PRD §7.4, Nature 2026), scheduled in §13:
    - F-AGT-8 explicit `missing` / `stale` fields from tools (Day 6, P0)
    - F-OUT-5 deterministic citation check on reports (Day 8, P0)

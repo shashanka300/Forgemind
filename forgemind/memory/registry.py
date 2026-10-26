@@ -165,7 +165,10 @@ class Registry:
                         (name, vec_to_blob(proto), keyframe, eid))
         self.db.log_event("taught", "stated", {"name": name, "examples": len(vecs)},
                           entity_id=eid)
-        return self.view(self.get(eid))
+        v = self.view(self.get(eid))
+        v["examples"] = self.db.one("SELECT COUNT(*) AS n FROM entity_refs WHERE entity_id=?",
+                                    (eid,))["n"]
+        return v
 
     def correct(self, eid, name=None, zone=None):
         if name:

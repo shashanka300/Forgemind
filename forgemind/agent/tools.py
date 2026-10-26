@@ -22,6 +22,10 @@ READ_PROMPT = """You read instrument displays from a photo. Target: {target}.
 Answer with JSON only: {{"value": number or null, "unit": string or null,
 "text": the exact characters on the display, "confidence": 0..1}}.
 If the display is not readable, value is null. Never guess digits."""
+# Teaching takes the object from up to TEACH_VIEWS phone frames of the last
+# TEACH_WINDOW_S seconds (the phone sends a frame every ~0.5-1 s).
+TEACH_VIEWS = 3
+TEACH_WINDOW_S = 4.0
 
 
 # -- argument models ----------------------------------------------------------
@@ -283,22 +287,52 @@ class ToolBox:
             s = f"I'll alert you if I see {a.concept} on the bench."
         return {"watch": w, "summary": s}
 
-    def teach_object(self, a: TeachObject):
-        p = self.ctx.perception
-        img = p.current_image("mobile")
-        if img is None:
-            raise ToolError("Point the phone's camera at the object first.")
-        latest = p.latest["mobile"]
-        objs = [d for d in latest["detections"] if d.get("kind") == "object"]
+    def _teach_target(self, frame, concept):
+        """(box, concept, how) of the object being shown in one phone frame.
+
+        Prefer a detection near the centre (of the named concept if given);
+        if the frame has none, ask the segmenter for the concept directly;
+        the centre of the view is the last resort.
+        """
+        objs = [d for d in frame["detections"] if d.get("kind") == "object"]
+        if concept:
+            objs = [d for d in objs if d["concept"] == concept] or objs
         if objs:
-            d = min(objs, key=lambda d: abs((d["box"][0] + d["box"][2]) / 2 - 0.5)
-                    + abs((d["box"][1] + d["box"][3]) / 2 - 0.5))
-            box, concept = d["box"], a.concept or d["concept"]
-        else:
-            box, concept = (0.25, 0.25, 0.75, 0.75), a.concept or "object"
-        keyframe = p._save_keyframe("mobile", img, time.time(), force=True)
-        v = self.mem.registry.teach(a.name, [p.crop(img, box)], concept, keyframe)
-        return {"entity": v, "summary": f"Got it - that's your {a.name}. Show it to me from another angle and say it again to make it stick."}
+            d = min(objs, key=_off_centre)
+            return d["box"], concept or d["concept"], "detected"
+        if concept:
+            try:
+                dets = self.ctx.perception.seg.segment(frame["image"], [concept])
+            except Exception:
+                dets = []
+            if dets:
+                d = min(dets, key=lambda d: _off_centre({"box": d.box}))
+                return d.box, concept, "asked"
+        return (0.25, 0.25, 0.75, 0.75), concept or "object", "centre"
+
+    def teach_object(self, a: TeachObject):
+        """Name the object in front of the phone, from up to TEACH_VIEWS recent frames."""
+        p = self.ctx.perception
+        frames = p.recent_frames(TEACH_WINDOW_S)
+        if not frames:
+            if p.current_image("mobile") is None:
+                raise ToolError("Point the phone's camera at the object first.")
+            frames = [p.latest["mobile"]]
+        frames = frames[:TEACH_VIEWS]
+        crops, hows, concept = [], [], a.concept
+        for f in frames:
+            box, c, how = self._teach_target(f, concept)
+            concept = concept or (c if how != "centre" else None)
+            crops.append(p.crop(f["image"], box))
+            hows.append(how)
+        keyframe = p._save_keyframe("mobile", frames[0]["image"], time.time(), force=True)
+        v = self.mem.registry.teach(a.name, crops, concept or "object", keyframe)
+        summary = f"Got it - that's your {a.name} ({len(crops)} view{'s' * (len(crops) > 1)})."
+        if all(h == "centre" for h in hows):
+            summary += " I couldn't pick out the object, so I used the middle of the view."
+        if v.get("examples", 0) < 3:
+            summary += " Turn it a little and say it again so I can recognise it from other angles."
+        return {"entity": v, "views": hows, "summary": summary}
 
     # -- sessions -------------------------------------------------------------
 
@@ -393,6 +427,11 @@ class ToolBox:
         self.ctx.hub.push({"type": "alert", "severity": a.severity, "message": a.message})
         self.mem.db.log_event("alert", "inferred", {"message": a.message, "severity": a.severity})
         return {"summary": "Sent."}
+
+
+def _off_centre(d):
+    b = d["box"]
+    return abs((b[0] + b[2]) / 2 - 0.5) + abs((b[1] + b[3]) / 2 - 0.5)
 
 
 class ToolError(Exception):
