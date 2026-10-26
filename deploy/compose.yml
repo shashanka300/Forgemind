@@ -1,0 +1,19 @@
+# docker compose -f deploy/compose.yml up -d --build
+# Then: docker compose -f deploy/compose.yml logs forgemind   (prints the link + token)
+# For the phone's HTTPS link, run zrok on the host:  zrok share public http://localhost:8770
+services:
+  forgemind:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file: ../.env
+    environment:
+      FM_DATA_DIR: /data
+    ports:
+      - "8770:8770"
+    volumes:
+      - forgemind-data:/data      # Docker volume (works with Colima; no Mac bind mounts)
+    restart: unless-stopped
+
+volumes:
+  forgemind-data:

@@ -1,0 +1,170 @@
+"""Agent flows with the mock model, plus the real OpenAI-compatible provider
+against a fake Meta endpoint (so day-one API wiring is already exercised)."""
+import json
+import threading
+import time
+
+import httpx
+
+from conftest import jpeg, scene
+from forgemind.agent.tools import schemas
+from forgemind.providers.base import ChatResult, ToolCall
+from forgemind.providers.openai_compat import OpenAICompatModel
+
+
+def say(rt, text):
+    return rt.agent.handle(text)
+
+
+def test_session_flow_and_report(rt):
+    r = say(rt, "Start a session called voltage divider")
+    assert r["trace"][0]["tool"] == "start_session" and "voltage divider" in r["reply"]
+    say(rt, "The steps are: wire the divider; measure output voltage; swap R2")
+    r = say(rt, "Log wire the divider")
+    assert "Marked 'wire the divider' done" in r["reply"]
+    say(rt, "Set R2 to 10k")
+    r = say(rt, "I measured output voltage is 3.3 V")
+    assert r["trace"][0]["tool"] == "log_measurement" and "3.3" in r["reply"]
+    r = say(rt, "just checking, the probe contact")
+    assert "not logged as a step" in r["reply"]
+    r = say(rt, "write it up")
+    assert r["trace"][0]["tool"] == "generate_report"
+    md = next(rt.memory.reports_dir.glob("*.md")).read_text()
+    assert "| output voltage | 3.3 | V | you said" in md
+    assert "R2 | 10k" in md and "Not done: swap R2" in md and "[E" in md
+    assert "Tried but not committed: the probe contact" in md
+
+
+def test_repeat_session_carries_steps_and_compares(rt):
+    say(rt, "start a session called voltage divider")
+    say(rt, "steps are: measure output voltage; swap R2")
+    say(rt, "set R2 to 10k")
+    say(rt, "measured output voltage is 3.3 V")
+    say(rt, "end the session")
+    r = say(rt, "start a new session called voltage divider")
+    assert "carried over" in r["reply"]
+    say(rt, "set R2 to 4.7k")
+    say(rt, "measured output voltage is 2.1 V")
+    r = say(rt, "what changed?")
+    assert "R2 changed from 10k to 4.7k" in r["reply"]
+    assert "from 3.3 to 2.1" in r["reply"]
+
+
+def test_resume(rt):
+    say(rt, "start a session called solder headers")
+    say(rt, "steps are: tin the pads; solder pin 1; check continuity")
+    say(rt, "log tin the pads")
+    say(rt, "end the session")
+    r = say(rt, "where did we leave off?")
+    assert r["trace"][0]["tool"] == "resume_session"
+    assert "Next up: solder pin 1" in r["reply"]
+
+
+def test_where_is_and_look_request(rt):
+    rt.perception.process("static", scene([("multimeter", .4, .4, .6, .6)]), ts=time.time() - 30)
+    r = say(rt, "where is the multimeter?")
+    assert "on the bench" in r["reply"] and "bench camera" in r["reply"]
+    r = say(rt, "where's my unicorn")
+    assert "haven't seen" in r["reply"]
+    r = say(rt, "look at the drawer")
+    assert r["trace"][0]["tool"] == "go_look_at"
+    assert rt.hub.pending_looks()[0]["zone"] == "drawer"
+    rt.perception.process("mobile", scene([], tag=2))          # user points phone at drawer
+    assert rt.hub.pending_looks() == []
+    assert any(m["type"] == "look_done" for m in rt.hub.outbox)
+
+
+def test_safety_unattended_alert(rt):
+    now = time.time()
+    rt.safety.last_present = now - 600
+    rt.perception.process("static", scene([("soldering iron", .1, .4, .3, .6)]), ts=now)
+    fired = rt.safety.evaluate(now)
+    assert fired and "soldering iron" in fired[0]["message"]
+    assert rt.safety.evaluate(now + 1) == []                       # cooldown
+    rt.perception.process("static", scene([("soldering iron", .1, .4, .3, .6),
+                                           ("person", .5, .1, .9, .9)]), ts=now + 2, force=True)
+    assert rt.safety.user_away_for(now + 2) == 0
+
+
+class FakeVision:
+    """Model that asks for a close-up, then reads '4.98 V' from it."""
+    name, supports_vision = "fake", True
+
+    def model_for(self, role):
+        return f"fake-{role}"
+
+    def chat(self, messages, tools=None, model=None, json_mode=False):
+        if json_mode:
+            return ChatResult(content=json.dumps({"value": 4.98, "unit": "V", "text": "4.98",
+                                                  "confidence": 0.9}))
+        if messages[-1]["role"] == "tool":
+            return ChatResult(content=json.loads(messages[-1]["content"])["summary"])
+        return ChatResult(content=None, tool_calls=[ToolCall(
+            "c1", "read_closeup", {"target": "multimeter display", "quantity": "supply voltage"})])
+
+
+def test_read_closeup_logs_instrument_measurement(rt):
+    rt.llm = rt.ctx.llm = FakeVision()
+    rt.memory.experiments.start("supply check")
+
+    def phone():
+        for _ in range(100):
+            req = [m for m in rt.hub.outbox if m["type"] == "capture_request"]
+            if req:
+                rt.hub.deliver_capture(req[-1]["id"], jpeg(scene([("multimeter", .2, .2, .8, .8)])))
+                return
+            time.sleep(0.02)
+    threading.Thread(target=phone).start()
+    r = rt.agent.handle("read the multimeter")
+    assert "reads 4.98 V" in r["reply"]
+    m = rt.memory.experiments.measurements(rt.memory.experiments.active()["id"])[0]
+    assert (m["quantity"], m["value"], m["source"]) == ("supply voltage", 4.98, "instrument")
+    assert m["keyframe"]
+
+
+def test_openai_compat_provider_against_fake_meta_endpoint(rt):
+    """Exercises the real client code path: tools in, tool_calls out, loop, reply."""
+    seen = []
+
+    def handler(request: httpx.Request):
+        body = json.loads(request.content)
+        seen.append(body)
+        assert request.url.path == "/v1/chat/completions"
+        assert request.headers["authorization"] == "Bearer test-key"
+        if body["messages"][-1]["role"] == "tool":
+            msg = {"role": "assistant", "content": "It's on the bench, left side."}
+        else:
+            msg = {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "call_1", "type": "function",
+                "function": {"name": "where_is", "arguments": json.dumps({"query": "multimeter"})}}]}
+        return httpx.Response(200, json={
+            "id": "x", "object": "chat.completion", "created": 0, "model": body["model"],
+            "choices": [{"index": 0, "message": msg, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}})
+
+    llm = OpenAICompatModel("https://api.meta.ai/v1", "test-key", "muse-wonder-1.0",
+                            "muse-spark-1.3", name="meta",
+                            http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    rt.llm = rt.ctx.llm = llm
+    rt.perception.process("static", scene([("multimeter", .05, .4, .2, .6)]))
+    r = rt.agent.handle("where's the multimeter?")
+    assert r["reply"] == "It's on the bench, left side."
+    assert r["trace"][0]["tool"] == "where_is"
+    assert seen[0]["model"] == "muse-wonder-1.0"
+    assert {t["function"]["name"] for t in seen[0]["tools"]} >= {"where_is", "go_look_at"}
+    assert seen[0]["messages"][0]["role"] == "system"
+    assert "Known objects: multimeter @ bench" in seen[0]["messages"][0]["content"]
+    tool_msg = seen[1]["messages"][-1]
+    assert tool_msg["role"] == "tool" and tool_msg["tool_call_id"] == "call_1"
+
+
+def test_tool_schemas_are_valid_and_validation_rejects_bad_args(rt):
+    names = [s["function"]["name"] for s in schemas()]
+    assert len(names) == len(set(names)) == 17
+    for s in schemas():
+        assert s["function"]["parameters"]["type"] == "object"
+    out = rt.agent.tools.run("log_measurement", {"quantity": "v"})
+    assert "invalid arguments" in out["error"]
+    out = rt.agent.tools.run("log_step", {"text": "x"})
+    assert "no active session" in out["error"]
+    assert "unknown tool" in rt.agent.tools.run("rm_rf", {})["error"]

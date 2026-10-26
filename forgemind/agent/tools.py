@@ -1,0 +1,399 @@
+"""Agent tools (PRD section 9).
+
+Each tool has a pydantic argument model (its JSON schema is what the model
+sees) and an implementation. The model proposes; `ToolBox.run` validates the
+arguments and the current state before anything executes, and every result
+carries a one-line `summary` that can be spoken as-is.
+
+The embodied tools (go_look_at, read_closeup, highlight) talk to the Hub.
+Today a person carrying the phone fulfils them; a robot base or arm can
+implement the same requests later without changing the agent.
+"""
+import json
+import time
+from typing import Literal
+
+from pydantic import BaseModel, Field, ValidationError
+
+from forgemind import reports
+from forgemind.providers.openai_compat import image_part
+
+READ_PROMPT = """You read instrument displays from a photo. Target: {target}.
+Answer with JSON only: {{"value": number or null, "unit": string or null,
+"text": the exact characters on the display, "confidence": 0..1}}.
+If the display is not readable, value is null. Never guess digits."""
+
+
+# -- argument models ----------------------------------------------------------
+
+class WhereIs(BaseModel):
+    query: str = Field(..., description="Object name or description, e.g. '2.5 mm hex key'")
+
+
+class InspectScene(BaseModel):
+    camera: Literal["static", "mobile", "both"] = "both"
+
+
+class GoLookAt(BaseModel):
+    target: str = Field(..., description="A zone name (bench, shelf, drawer...) or an object")
+    reason: str = Field("", description="Short reason shown to the user")
+
+
+class ReadCloseup(BaseModel):
+    target: str = Field(..., description="What to read, e.g. 'multimeter display'")
+    quantity: str | None = Field(None, description="Quantity to log the reading as")
+
+
+class Highlight(BaseModel):
+    query: str
+
+
+class WatchBench(BaseModel):
+    concept: str
+    kind: Literal["unattended", "present"] = "unattended"
+    seconds: float | None = Field(None, description="For 'unattended': seconds away before alerting")
+
+
+class TeachObject(BaseModel):
+    name: str = Field(..., description="Personal name for the object in front of the phone")
+    concept: str | None = None
+
+
+class StartSession(BaseModel):
+    name: str
+    objective: str | None = None
+
+
+class ResumeSession(BaseModel):
+    name: str | None = Field(None, description="Session name; omit for the most recent")
+
+
+class Empty(BaseModel):
+    pass
+
+
+class PlanSteps(BaseModel):
+    steps: list[str] = Field(..., min_length=1)
+
+
+class LogStep(BaseModel):
+    text: str
+    tentative: bool = Field(False, description="True for 'just checking, don't log that'")
+
+
+class LogMeasurement(BaseModel):
+    quantity: str
+    value: float | None = Field(..., description="null if the user did not give a number")
+    unit: str | None = None
+    source: Literal["stated", "instrument"] = "stated"
+    note: str | None = None
+
+
+class SetConfig(BaseModel):
+    key: str
+    value: str
+
+
+class CompareSessions(BaseModel):
+    session_a: int | None = None
+    session_b: int | None = None
+
+
+class GenerateReport(BaseModel):
+    session_name: str | None = None
+
+
+class Alert(BaseModel):
+    message: str
+    severity: Literal["info", "warning", "critical"] = "info"
+
+
+SPECS = {
+    "where_is": (WhereIs, "Find where an object was last seen (zone, camera, time, confidence, keyframe). Highlights it if it is in the phone's view now."),
+    "inspect_scene": (InspectScene, "What the bench camera and/or the phone see right now."),
+    "go_look_at": (GoLookAt, "Ask the user to point the phone at a zone or object, e.g. when memory is stale or uncertain. Non-blocking; memory updates when they do."),
+    "read_closeup": (ReadCloseup, "Ask for a close-up photo and read an instrument display or label from it. Logs the reading as a measurement if a session is active."),
+    "highlight": (Highlight, "Highlight an object on the phone's live view, or show its last-seen card if it isn't in view."),
+    "watch_bench": (WatchBench, "Start a safety watch: 'unattended' (object on bench, user away) or 'present' (e.g. smoke)."),
+    "teach_object": (TeachObject, "Remember the object in front of the phone under a personal name."),
+    "start_session": (StartSession, "Start a new experiment/work session (repeats carry over unfinished steps)."),
+    "resume_session": (ResumeSession, "Resume a session: last state, done and pending steps, next step."),
+    "end_session": (Empty, "End the active session."),
+    "plan_steps": (PlanSteps, "Set the checklist of planned steps for the active session."),
+    "log_step": (LogStep, "Record a step the user did (or a tentative one they asked not to log as done)."),
+    "log_measurement": (LogMeasurement, "Record a measurement. Never invent values."),
+    "set_config": (SetConfig, "Record a configuration value (component, setting)."),
+    "compare_sessions": (CompareSessions, "Compare configuration and measurements between two sessions (default: current vs previous run)."),
+    "generate_report": (GenerateReport, "Write the experiment report (Markdown) with provenance for every fact."),
+    "alert": (Alert, "Send an alert to the phone. Only for safety or when the user asked for a reminder."),
+}
+
+
+def schemas():
+    out = []
+    for name, (model, desc) in SPECS.items():
+        params = model.model_json_schema()
+        params.pop("title", None)
+        out.append({"type": "function",
+                    "function": {"name": name, "description": desc, "parameters": params}})
+    return out
+
+
+class ToolBox:
+    def __init__(self, ctx):
+        self.ctx = ctx
+
+    @property
+    def mem(self):
+        return self.ctx.memory
+
+    def run(self, name, arguments):
+        if name not in SPECS:
+            return {"error": f"unknown tool {name}"}
+        model, _ = SPECS[name]
+        try:
+            args = model(**(arguments or {}))
+        except ValidationError as e:
+            return {"error": f"invalid arguments for {name}: {e.errors()[:3]}"}
+        try:
+            result = getattr(self, name)(args)
+        except ToolError as e:
+            return {"error": str(e), "summary": str(e)}
+        self.mem.db.log_event("tool", "inferred", {"tool": name, "args": args.model_dump(),
+                                                   "summary": result.get("summary")})
+        return result
+
+    def _session(self):
+        s = self.mem.experiments.active()
+        if not s:
+            raise ToolError("There's no active session. Start or resume one first.")
+        return s
+
+    # -- perception & memory --------------------------------------------------
+
+    def where_is(self, a: WhereIs):
+        hits = self.mem.registry.find(a.query)
+        if not hits:
+            return {"found": False, "summary": f"I haven't seen anything like '{a.query}' yet."}
+        top = hits[0]
+        in_view = self._in_mobile_view(top["id"])
+        if in_view:
+            self.ctx.hub.push({"type": "highlight", "entity_id": top["id"], "label": top["label"],
+                               "box": in_view["box"]})
+            summary = f"The {top['label']} is right there in your view - I've highlighted it."
+        else:
+            self.ctx.hub.push({"type": "last_seen", "entity": top})
+            summary = self.mem.registry.describe(top)
+            if top["stale"]:
+                summary += " I can ask you to check, if you like."
+        return {"found": True, "results": hits, "in_view": bool(in_view), "summary": summary,
+                "history": self.mem.registry.history(top["id"], 5)}
+
+    def _in_mobile_view(self, eid):
+        latest = self.ctx.perception.latest.get("mobile")
+        if not latest or time.time() - latest["ts"] > 5:
+            return None
+        return next((d for d in latest["detections"] if d.get("entity_id") == eid), None)
+
+    def inspect_scene(self, a: InspectScene):
+        cams = ["static", "mobile"] if a.camera == "both" else [a.camera]
+        scenes = [self.ctx.perception.scene(c) for c in cams]
+        parts = []
+        for sc in scenes:
+            who = "bench camera" if sc["camera"] == "static" else "phone"
+            if not sc["available"]:
+                parts.append(f"The {who} isn't streaming.")
+                continue
+            objs = ", ".join(sc["objects"]) or "nothing I recognise"
+            where = f" ({sc['zone']})" if sc.get("zone") else ""
+            parts.append(f"The {who}{where} sees {objs}.")
+        return {"scenes": scenes, "summary": " ".join(parts)}
+
+    def go_look_at(self, a: GoLookAt):
+        zones = {z.lower() for z in self.ctx.settings.zones.values()}
+        target = a.target.lower().removeprefix("the ")
+        zone = target if target in zones else None
+        eid = None
+        if not zone:
+            hits = self.mem.registry.find(target, limit=1)
+            if hits:
+                eid, zone = hits[0]["id"], hits[0]["zone"]
+        look = self.ctx.hub.request_look(a.target, a.reason, zone=zone, entity_id=eid)
+        self.mem.db.log_event("look_request", "inferred", {"target": a.target, "zone": zone,
+                                                           "reason": a.reason})
+        where = f" (the {zone})" if zone and zone != target else ""
+        return {"look_id": look["id"], "zone": zone,
+                "summary": f"Could you point the phone at the {target}{where}?"}
+
+    def read_closeup(self, a: ReadCloseup):
+        data = self.ctx.hub.request_capture(a.target, timeout=self.ctx.capture_timeout)
+        if data is None:
+            return {"value": None, "summary": f"I didn't get a close-up of the {a.target}."}
+        img = self.ctx.perception.decode(data)
+        ts = time.time()
+        keyframe = self.ctx.perception._save_keyframe("mobile", img, ts, force=True)
+        llm = self.ctx.llm
+        reading = {"value": None, "unit": None, "text": None, "confidence": 0}
+        if getattr(llm, "supports_vision", False):
+            res = llm.chat([{"role": "user", "content": [
+                {"type": "text", "text": READ_PROMPT.format(target=a.target)},
+                image_part(img, max_px=1600, quality=90)]}],
+                model=llm.model_for("worker"), json_mode=True)
+            try:
+                reading.update(json.loads(res.content or "{}"))
+            except json.JSONDecodeError:
+                pass
+        if reading.get("value") is None:
+            why = ("reading displays needs a vision model (mock mode)"
+                   if not getattr(llm, "supports_vision", False) else "I couldn't read it clearly")
+            return {"value": None, "keyframe": keyframe,
+                    "summary": f"I got the close-up, but {why}. Tell me the value and I'll log it."}
+        out = {"reading": reading, "keyframe": keyframe}
+        s = self.mem.experiments.active()
+        val = f"{reading['value']} {reading.get('unit') or ''}".strip()
+        if s:
+            q = a.quantity or a.target
+            out.update(self.mem.experiments.log_measurement(
+                s["id"], q, float(reading["value"]), reading.get("unit"), "instrument", keyframe,
+                note=f"display read '{reading.get('text')}' conf {reading.get('confidence')}"))
+            out["summary"] = f"The {a.target} reads {val}. Logged as {q}."
+        else:
+            out["summary"] = f"The {a.target} reads {val}."
+        return out
+
+    def highlight(self, a: Highlight):
+        hits = self.mem.registry.find(a.query, limit=1)
+        if not hits:
+            return {"summary": f"I don't know the {a.query} yet."}
+        top = hits[0]
+        d = self._in_mobile_view(top["id"])
+        if d:
+            self.ctx.hub.push({"type": "highlight", "entity_id": top["id"], "label": top["label"],
+                               "box": d["box"]})
+            return {"in_view": True, "summary": f"Highlighted the {top['label']}."}
+        self.ctx.hub.push({"type": "last_seen", "entity": top})
+        return {"in_view": False, "entity": top,
+                "summary": "It's not in view. " + self.mem.registry.describe(top)}
+
+    def watch_bench(self, a: WatchBench):
+        w = self.ctx.safety.add_watch(a.kind, a.concept, a.seconds)
+        if a.kind == "unattended":
+            s = f"Watching the {a.concept}: I'll alert you if it's on the bench and you're away for {int(w['seconds'])} seconds."
+        else:
+            s = f"I'll alert you if I see {a.concept} on the bench."
+        return {"watch": w, "summary": s}
+
+    def teach_object(self, a: TeachObject):
+        p = self.ctx.perception
+        img = p.current_image("mobile")
+        if img is None:
+            raise ToolError("Point the phone's camera at the object first.")
+        latest = p.latest["mobile"]
+        objs = [d for d in latest["detections"] if d.get("kind") == "object"]
+        if objs:
+            d = min(objs, key=lambda d: abs((d["box"][0] + d["box"][2]) / 2 - 0.5)
+                    + abs((d["box"][1] + d["box"][3]) / 2 - 0.5))
+            box, concept = d["box"], a.concept or d["concept"]
+        else:
+            box, concept = (0.25, 0.25, 0.75, 0.75), a.concept or "object"
+        keyframe = p._save_keyframe("mobile", img, time.time(), force=True)
+        v = self.mem.registry.teach(a.name, [p.crop(img, box)], concept, keyframe)
+        return {"entity": v, "summary": f"Got it - that's your {a.name}. Show it to me from another angle and say it again to make it stick."}
+
+    # -- sessions -------------------------------------------------------------
+
+    def start_session(self, a: StartSession):
+        s = self.mem.experiments.start(a.name, a.objective)
+        st = self.mem.experiments.state(s["id"])
+        extra = f" I carried over {len(st['pending'])} unfinished steps; next is: {st['next']}." if st["pending"] else ""
+        return {"state": st, "summary": f"Started session '{a.name}'.{extra}"}
+
+    def resume_session(self, a: ResumeSession):
+        st = self.mem.experiments.resume(a.name)
+        if not st:
+            raise ToolError(f"I can't find a session called '{a.name}'." if a.name
+                            else "There are no sessions yet.")
+        name = st["session"]["name"]
+        bits = [f"Resuming '{name}', last active {st['last_activity']}."]
+        if st["done"]:
+            bits.append(f"Done: {len(st['done'])} steps, last was '{st['done'][-1]}'.")
+        if st["next"]:
+            bits.append(f"Next up: {st['next']}.")
+        elif not st["done"]:
+            bits.append("No steps recorded yet.")
+        else:
+            bits.append("No pending steps.")
+        if st["measurements"]:
+            m = st["measurements"][-1]
+            bits.append(f"Last measurement: {m['quantity']} = {m['value']} {m['unit'] or ''}.".replace(" .", "."))
+        return {"state": st, "summary": " ".join(bits)}
+
+    def end_session(self, a: Empty):
+        s = self.mem.experiments.end()
+        if not s:
+            raise ToolError("There's no active session.")
+        return {"session": s, "summary": f"Ended session '{s['name']}'."}
+
+    def plan_steps(self, a: PlanSteps):
+        s = self._session()
+        self.mem.experiments.plan(s["id"], a.steps)
+        return {"summary": f"Added {len(a.steps)} planned steps. First: {a.steps[0]}."}
+
+    def log_step(self, a: LogStep):
+        s = self._session()
+        kf = (self.ctx.perception.latest.get("static") or {}).get("keyframe")
+        r = self.mem.experiments.log_step(s["id"], a.text, a.tentative, keyframe=kf)
+        if a.tentative:
+            return {**r, "summary": "Okay, noted as just a check - not logged as a step."}
+        if r["matched_plan"]:
+            nxt = self.mem.experiments.state(s["id"])["next"]
+            tail = f" Next: {nxt}." if nxt else " That was the last planned step."
+            return {**r, "summary": f"Marked '{r['matched_plan']}' done.{tail}"}
+        return {**r, "summary": f"Logged: {a.text}."}
+
+    def log_measurement(self, a: LogMeasurement):
+        s = self._session()
+        r = self.mem.experiments.log_measurement(s["id"], a.quantity, a.value, a.unit, a.source,
+                                                 note=a.note)
+        if a.value is None:
+            return {**r, "summary": f"I logged {a.quantity} as missing - tell me the value when you have it."}
+        return {**r, "summary": f"Logged {a.quantity} = {a.value:g} {a.unit or ''}".rstrip() + "."}
+
+    def set_config(self, a: SetConfig):
+        s = self._session()
+        r = self.mem.experiments.set_config(s["id"], a.key, a.value)
+        return {**r, "summary": f"Noted: {a.key} is {a.value}."}
+
+    def compare_sessions(self, a: CompareSessions):
+        c = self.mem.experiments.compare(a.session_a, a.session_b)
+        if not c or not c.get("previous"):
+            raise ToolError("There's no earlier session to compare with.")
+        bits = [f"Compared with '{c['previous']['name']}':"]
+        for ch in c["config_changes"][:4]:
+            bits.append(f"{ch['key']} changed from {ch['previous']} to {ch['current']}.")
+        for m in c["measurements"]:
+            if "delta" in m:
+                bits.append(f"{m['quantity']} went from {m['previous']:g} to {m['current']:g} {m['unit'] or ''}.".replace(" .", "."))
+            elif m["current"] is None:
+                bits.append(f"{m['quantity']} hasn't been measured this time.")
+        if len(bits) == 1:
+            bits.append("no differences recorded yet.")
+        return {"comparison": c, "summary": " ".join(bits)}
+
+    def generate_report(self, a: GenerateReport):
+        s = self.mem.experiments.find(a.session_name) if a.session_name else (
+            self.mem.experiments.active() or self.mem.experiments.find(None))
+        if not s:
+            raise ToolError("There's no session to report on.")
+        r = reports.generate(self.mem.experiments, self.ctx.llm, s["id"], self.mem.reports_dir)
+        self.ctx.hub.push({"type": "report", "url": r["url"], "name": s["name"]})
+        return {"url": r["url"], "summary": f"The report for '{s['name']}' is ready on your phone."}
+
+    def alert(self, a: Alert):
+        self.ctx.hub.push({"type": "alert", "severity": a.severity, "message": a.message})
+        self.mem.db.log_event("alert", "inferred", {"message": a.message, "severity": a.severity})
+        return {"summary": "Sent."}
+
+
+class ToolError(Exception):
+    pass

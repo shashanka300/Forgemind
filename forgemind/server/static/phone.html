@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121110">
+<title>ForgeMind</title>
+<style>
+:root{
+  --bg:#121110; --panel:#1b1a18; --panel2:#24221f; --line:#34312c;
+  --ink:#ece7de; --mute:#9a938a; --amber:#f2a33a; --amber-ink:#1d1307;
+  --green:#5fd38a; --red:#ff5a4e; --blue:#7fb2ff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+body{padding:env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 8px)}
+header{display:flex;align-items:center;gap:8px;padding:10px 16px;position:sticky;top:0;background:var(--bg);z-index:5;border-bottom:1px solid var(--line)}
+.brand{font-weight:700;letter-spacing:.02em;margin-right:auto;display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--red)}
+.dot.on{background:var(--green)}
+.chip{font:12px var(--mono);padding:3px 8px;border-radius:999px;background:var(--panel2);color:var(--mute);white-space:nowrap;max-width:42vw;overflow:hidden;text-overflow:ellipsis}
+.chip.zone{color:var(--amber)}
+main{padding:12px 16px;display:flex;flex-direction:column;gap:12px;max-width:720px;margin:0 auto}
+.stage{position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:4/3;border:1px solid var(--line)}
+video,#overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.stage .start{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:16px;color:var(--mute)}
+.stage .hud{position:absolute;left:8px;bottom:8px;font:11px var(--mono);color:#fff;background:rgba(0,0,0,.55);padding:3px 7px;border-radius:6px}
+button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;cursor:pointer}
+button.primary{background:var(--amber);color:var(--amber-ink);border-color:var(--amber);font-weight:650}
+button.ghost{background:transparent}
+button:disabled{opacity:.5}
+.cards{display:flex;flex-direction:column;gap:8px}
+.card{border-radius:12px;padding:12px;background:var(--panel);border:1px solid var(--line);display:flex;gap:10px;align-items:flex-start}
+.card .body{flex:1;min-width:0}
+.card .title{font-weight:650;margin-bottom:2px}
+.card.alert{border-color:var(--red);background:#2a1513}
+.card.alert .title{color:var(--red)}
+.card.look{border-color:var(--amber)}
+.card.look .title{color:var(--amber)}
+.card.capture{border-color:var(--blue)}
+.card img{width:84px;height:63px;object-fit:cover;border-radius:8px;background:#000;flex:none}
+.card .x{padding:4px 9px;border-radius:8px}
+.talk{display:flex;gap:8px;align-items:stretch}
+.talk input{flex:1;min-width:0;font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#ptt{flex:none;width:64px;border-radius:12px;background:var(--amber);color:var(--amber-ink);border:none;font-weight:700;touch-action:none;user-select:none}
+#ptt.live{background:var(--red);color:#fff}
+.log{display:flex;flex-direction:column;gap:6px;max-height:34vh;overflow:auto}
+.msg{padding:8px 11px;border-radius:12px;max-width:88%;white-space:pre-wrap;word-wrap:break-word}
+.msg.u{align-self:flex-end;background:var(--panel2)}
+.msg.a{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
+.msg .tools{display:block;margin-top:4px;font:11px var(--mono);color:var(--mute)}
+nav{display:flex;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px}
+nav button{flex:1;border:none;background:transparent;padding:8px 4px;font-size:14px;color:var(--mute)}
+nav button.on{background:var(--panel2);color:var(--ink)}
+.pane{display:none;flex-direction:column;gap:8px}
+.pane.on{display:flex}
+.row{display:flex;gap:10px;align-items:center;padding:10px;border-radius:12px;background:var(--panel);border:1px solid var(--line)}
+.row img{width:72px;height:54px;object-fit:cover;border-radius:8px;background:#000;flex:none}
+.row .body{flex:1;min-width:0}
+.row .meta{font:12px var(--mono);color:var(--mute)}
+.bar{height:4px;border-radius:2px;background:var(--line);margin-top:5px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--green)}
+.bar i.stale{background:var(--amber)}
+.controls{display:flex;gap:8px;flex-wrap:wrap}
+.controls button{flex:1;min-width:96px}
+.controls button.on{border-color:var(--amber);color:var(--amber)}
+.muted{color:var(--mute);font-size:13px}
+h3{margin:6px 0 0;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+ul.steps{margin:0;padding-left:20px}
+ul.steps li.done{color:var(--mute);text-decoration:line-through}
+.static-only{display:none}
+body.static .mobile-only{display:none}
+body.static .static-only{display:block}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot" id="wsdot"></span><span id="title">ForgeMind</span></div>
+  <span class="chip zone" id="zone">no zone</span>
+  <span class="chip mobile-only" id="sess">no session</span>
+</header>
+
+<main>
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div class="start" id="start">
+      <div id="startText">Camera is off.</div>
+      <button class="primary" id="camBtn">Start camera</button>
+      <div class="muted" id="camHint"></div>
+    </div>
+    <div class="hud" id="hud" hidden></div>
+  </div>
+
+  <div class="static-only muted">Bench camera mode: keep this phone fixed over the workbench, plugged in. It sends about one frame a second.</div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="talk mobile-only">
+    <button id="ptt" aria-label="Hold to talk">Hold</button>
+    <input id="text" placeholder="Ask or tell ForgeMind…" enterkeyhint="send" autocomplete="off">
+  </div>
+  <div class="log mobile-only" id="log"></div>
+
+  <nav class="mobile-only">
+    <button data-pane="memory" class="on">Memory</button>
+    <button data-pane="session">Session</button>
+    <button data-pane="events">Events</button>
+  </nav>
+  <section class="pane on mobile-only" id="pane-memory"></section>
+  <section class="pane mobile-only" id="pane-session"></section>
+  <section class="pane mobile-only" id="pane-events"></section>
+
+  <div class="controls">
+    <button id="teachBtn" class="mobile-only">Teach object</button>
+    <button id="pauseBtn">Pause cameras</button>
+    <button id="privBtn">Private mode</button>
+  </div>
+</main>
+
+<script>
+const params = new URLSearchParams(location.search);
+const ROLE = params.get("role") === "static" ? "static" : "mobile";
+const INTERVAL = ROLE === "static" ? 1000 : 200;      // ms between frames (max rate)
+const SEND_PX = 640;
+if (ROLE === "static") { document.body.classList.add("static"); document.getElementById("title").textContent = "ForgeMind · bench camera"; }
+
+const $ = id => document.getElementById(id);
+const video = $("video"), overlay = $("overlay"), ctx = overlay.getContext("2d");
+const grab = document.createElement("canvas");
+let running = false, paused = false, lastDets = [], highlight = null, ws = null;
+
+// ---------- api ----------
+async function api(path, opts = {}) {
+  const r = await fetch(path, {credentials: "same-origin", ...opts});
+  if (r.status === 401) { location.reload(); throw new Error("locked"); }
+  return r.json();
+}
+const post = (path, body) => api(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// ---------- camera ----------
+$("camHint").textContent = window.isSecureContext ? "" :
+  "Live camera needs HTTPS. Use the zrok link (forgemind serve --zrok) or localhost.";
+$("camBtn").onclick = startCamera;
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {facingMode: {ideal: "environment"}, width: {ideal: 1920}, height: {ideal: 1440}}, audio: false});
+    video.srcObject = stream;
+    await video.play();
+    running = true;
+    $("start").hidden = true; $("hud").hidden = false;
+    if (ROLE === "static" && navigator.wakeLock) navigator.wakeLock.request("screen").catch(() => {});
+    loop();
+  } catch (e) {
+    $("startText").textContent = "Couldn't open the camera: " + e.message;
+  }
+}
+
+function snapshot(maxPx, quality) {
+  const w = video.videoWidth, h = video.videoHeight;
+  const s = Math.min(1, maxPx / Math.max(w, h));
+  grab.width = Math.round(w * s); grab.height = Math.round(h * s);
+  grab.getContext("2d").drawImage(video, 0, 0, grab.width, grab.height);
+  return new Promise(res => grab.toBlob(res, "image/jpeg", quality));
+}
+
+async function loop() {
+  while (running) {
+    const t0 = performance.now();
+    if (!paused && video.videoWidth) {
+      try {
+        const blob = await snapshot(SEND_PX, 0.72);
+        const out = await api(`/api/frame?camera=${ROLE}`, {method: "POST", headers: {"Content-Type": "image/jpeg"}, body: blob});
+        if (!out.skipped) lastDets = out.detections || [];
+        if (out.zone) $("zone").textContent = "📍 " + out.zone;
+        $("hud").textContent = out.paused ? "paused" : `${ROLE} · ${lastDets.length} seen · ${out.ms ?? 0} ms${out.skipped ? " · no change" : ""}`;
+        (out.events || []).forEach(e => { if (e.type === "look_done") toast("Thanks, got it.", "look"); });
+      } catch (e) { $("hud").textContent = "offline"; await sleep(1500); }
+    }
+    draw();
+    await sleep(Math.max(0, INTERVAL - (performance.now() - t0)));
+  }
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ---------- overlay ----------
+function videoRect() {
+  const cw = overlay.clientWidth, ch = overlay.clientHeight;
+  const vw = video.videoWidth || 4, vh = video.videoHeight || 3;
+  const s = Math.min(cw / vw, ch / vh);
+  return {x: (cw - vw * s) / 2, y: (ch - vh * s) / 2, w: vw * s, h: vh * s};
+}
+function draw() {
+  const dpr = devicePixelRatio || 1;
+  overlay.width = overlay.clientWidth * dpr; overlay.height = overlay.clientHeight * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
+  const r = videoRect();
+  const hl = highlight && performance.now() < highlight.until ? highlight : null;
+  for (const d of lastDets) {
+    const [x0, y0, x1, y1] = d.box;
+    const isHl = hl && d.entity_id === hl.id;
+    const color = isHl ? "#5fd38a" : d.kind === "hazard" ? "#ff5a4e" : d.kind === "presence" ? "rgba(127,178,255,.6)" : "#f2a33a";
+    if (hl && !isHl && d.kind === "object") ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = color; ctx.lineWidth = isHl ? 4 + 2 * Math.sin(performance.now() / 150) : 2;
+    const bx = r.x + x0 * r.w, by = r.y + y0 * r.h, bw = (x1 - x0) * r.w, bh = (y1 - y0) * r.h;
+    ctx.strokeRect(bx, by, bw, bh);
+    const label = d.label || d.concept;
+    ctx.font = "600 12px system-ui"; const tw = ctx.measureText(label).width + 10;
+    ctx.fillStyle = color; ctx.fillRect(bx, Math.max(r.y, by - 18), tw, 18);
+    ctx.fillStyle = "#121110"; ctx.fillText(label, bx + 5, Math.max(r.y, by - 18) + 13);
+    ctx.globalAlpha = 1;
+  }
+  if (hl) requestAnimationFrame(draw);
+}
+addEventListener("resize", draw);
+
+// ---------- cards (alerts, look/capture requests, last-seen) ----------
+function card(kind, title, text, opts = {}) {
+  const el = document.createElement("div");
+  el.className = "card " + kind;
+  el.innerHTML = (opts.img ? `<img src="${esc(opts.img)}" alt="">` : "") +
+    `<div class="body"><div class="title">${esc(title)}</div><div>${esc(text)}</div>${opts.html || ""}</div>` +
+    `<button class="x ghost" aria-label="Dismiss">✕</button>`;
+  el.querySelector(".x").onclick = () => { el.remove(); opts.onClose && opts.onClose(); };
+  $("cards").prepend(el);
+  if (opts.ttl) setTimeout(() => el.remove(), opts.ttl);
+  return el;
+}
+const toast = (text, kind = "") => card(kind, text, "", {ttl: 3000});
+
+function speak(text) {
+  if (!("speechSynthesis" in window) || !text) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text); u.rate = 1.05;
+  speechSynthesis.speak(u);
+}
+
+const looks = {};
+function onPush(m) {
+  if (m.type === "alert") {
+    card("alert", m.severity === "critical" ? "Danger" : "Heads up", m.message);
+    navigator.vibrate && navigator.vibrate([300, 120, 300, 120, 300]);
+    speak(m.message);
+  } else if (m.type === "look_request" && ROLE === "mobile") {
+    looks[m.id] = card("look", "Point the phone at: " + m.target, m.reason || "", {
+      onClose: () => post(`/api/looks/${m.id}/dismiss`, {})});
+    speak("Could you point the phone at the " + m.target + "?");
+  } else if (m.type === "look_done") {
+    looks[m.id] && looks[m.id].remove();
+  } else if (m.type === "capture_request" && ROLE === "mobile") {
+    captureCard(m);
+  } else if (m.type === "highlight") {
+    highlight = {id: m.entity_id, until: performance.now() + 8000}; draw();
+  } else if (m.type === "last_seen") {
+    const e = m.entity;
+    card("", e.label, `Last seen ${e.zone ? "on the " + e.zone : "somewhere"} · ${e.ago} · ${Math.round(e.confidence * 100)}%`, {img: e.keyframe, ttl: 20000});
+  } else if (m.type === "report") {
+    card("", "Report ready", m.name, {html: `<a style="color:var(--amber)" href="${esc(m.url)}" target="_blank">Open report</a>`});
+  } else if (m.type === "say") {
+    speak(m.text);
+  }
+}
+
+function captureCard(m) {
+  let n = 5, done = false;
+  const el = card("capture", "Close-up: " + m.target, "Hold the phone close and steady. Capturing in 5…",
+    {html: `<div style="margin-top:8px"><button class="primary">Capture now</button></div>`});
+  speak("Hold the phone close to the " + m.target);
+  const go = async () => {
+    if (done) return; done = true; clearInterval(timer);
+    if (!running) { el.querySelector(".body div:nth-child(2)").textContent = "Start the camera first."; return; }
+    const blob = await snapshot(2048, 0.92);
+    await fetch(`/api/frame?capture_id=${m.id}`, {method: "POST", credentials: "same-origin", headers: {"Content-Type": "image/jpeg"}, body: blob});
+    el.remove(); toast("Captured.", "capture");
+  };
+  el.querySelector("button.primary").onclick = go;
+  const timer = setInterval(() => {
+    n -= 1;
+    el.querySelector(".body div:nth-child(2)").textContent = `Hold the phone close and steady. Capturing in ${n}…`;
+    if (n <= 0) go();
+  }, 1000);
+}
+
+function connect(delay = 500) {
+  const url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
+  ws = new WebSocket(url);
+  ws.onopen = () => { $("wsdot").classList.add("on"); delay = 500; };
+  ws.onmessage = ev => { try { onPush(JSON.parse(ev.data)); } catch (e) {} };
+  ws.onclose = () => { $("wsdot").classList.remove("on"); setTimeout(() => connect(Math.min(delay * 2, 10000)), delay); };
+}
+connect();
+setInterval(() => ws && ws.readyState === 1 && ws.send('{"type":"ping"}'), 25000);
+
+// ---------- talk ----------
+function addMsg(who, text, trace) {
+  const el = document.createElement("div");
+  el.className = "msg " + who;
+  el.textContent = text;
+  if (trace && trace.length) {
+    const t = document.createElement("span"); t.className = "tools";
+    t.textContent = trace.map(x => "⚙ " + x.tool + (x.error ? " ✗" : "")).join("  ");
+    el.appendChild(t);
+  }
+  $("log").prepend(el);
+}
+async function send(text) {
+  text = text.trim(); if (!text) return;
+  addMsg("u", text);
+  const pending = document.createElement("div"); pending.className = "msg a muted"; pending.textContent = "…";
+  $("log").prepend(pending);
+  try {
+    const r = await post("/api/chat", {text});
+    pending.remove(); addMsg("a", r.reply, r.trace); speak(r.reply);
+  } catch (e) { pending.textContent = "Couldn't reach ForgeMind."; }
+  refresh();
+}
+$("text").addEventListener("keydown", e => { if (e.key === "Enter") { send(e.target.value); e.target.value = ""; } });
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;
+if (SR) {
+  const ptt = $("ptt");
+  const start = e => {
+    e.preventDefault(); if (rec) return;
+    speechSynthesis && speechSynthesis.cancel();
+    rec = new SR(); rec.lang = navigator.language || "en-US"; rec.interimResults = true;
+    let finalText = "";
+    rec.onresult = ev => {
+      let interim = ""; finalText = "";
+      for (const r of ev.results) (r.isFinal ? (finalText += r[0].transcript) : (interim += r[0].transcript));
+      $("text").value = finalText + interim;
+    };
+    rec.onend = () => { ptt.classList.remove("live"); const t = $("text").value; $("text").value = ""; rec = null; send(t); };
+    rec.onerror = () => { ptt.classList.remove("live"); rec = null; };
+    rec.start(); ptt.classList.add("live");
+  };
+  const stop = () => rec && rec.stop();
+  ptt.addEventListener("pointerdown", start);
+  ptt.addEventListener("pointerup", stop);
+  ptt.addEventListener("pointercancel", stop);
+  ptt.addEventListener("pointerleave", stop);
+} else {
+  $("ptt").textContent = "Send";
+  $("ptt").onclick = () => { send($("text").value); $("text").value = ""; };
+}
+
+// ---------- panes ----------
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.id === "pane-" + b.dataset.pane));
+  refresh();
+});
+
+async function refresh() {
+  if (ROLE !== "mobile") return;
+  const st = await api("/api/state").catch(() => null);
+  if (st) {
+    $("sess").textContent = st.session ? "● " + st.session.session.name : "no session";
+    if (st.phone_zone) $("zone").textContent = "📍 " + st.phone_zone;
+    paused = st.paused; $("pauseBtn").classList.toggle("on", paused); $("pauseBtn").textContent = paused ? "Resume cameras" : "Pause cameras";
+    $("privBtn").classList.toggle("on", st.private);
+    renderSession(st);
+  }
+  const pane = document.querySelector("nav button.on").dataset.pane;
+  if (pane === "memory") renderMemory((await api("/api/entities")).entities);
+  if (pane === "events") renderEvents((await api("/api/events?limit=40")).events);
+}
+
+function renderMemory(list) {
+  const el = $("pane-memory");
+  if (!list.length) { el.innerHTML = `<div class="muted">Nothing remembered yet. Point a camera at your bench.</div>`; return; }
+  el.innerHTML = list.map(e => `
+    <div class="row">
+      ${e.keyframe ? `<img src="${esc(e.keyframe)}" alt="" loading="lazy">` : `<img alt="">`}
+      <div class="body">
+        <div><b>${esc(e.label)}</b>${e.taught ? " ★" : ""}</div>
+        <div class="meta">${esc(e.zone || "?")}${e.region ? " · " + esc(e.region) : ""} · ${esc(e.camera || "")} · ${esc(e.ago)}</div>
+        <div class="bar"><i class="${e.stale ? "stale" : ""}" style="width:${Math.round(e.confidence * 100)}%"></i></div>
+      </div>
+      <button class="ghost" data-rename="${e.id}">Rename</button>
+      <button class="ghost" data-forget="${e.id}">Forget</button>
+    </div>`).join("");
+  el.querySelectorAll("[data-rename]").forEach(b => b.onclick = async () => {
+    const name = prompt("Name for this object"); if (!name) return;
+    await post(`/api/entities/${b.dataset.rename}`, {name}); refresh();
+  });
+  el.querySelectorAll("[data-forget]").forEach(b => b.onclick = async () => {
+    if (!confirm("Forget this object?")) return;
+    await api(`/api/entities/${b.dataset.forget}`, {method: "DELETE"}); refresh();
+  });
+}
+
+function renderSession(st) {
+  const el = $("pane-session"), s = st.session;
+  if (!s) { el.innerHTML = `<div class="muted">No active session. Say "start a session called …".</div>`; return; }
+  el.innerHTML = `
+    <div class="row"><div class="body"><b>${esc(s.session.name)}</b>
+      <div class="meta">last activity ${esc(s.last_activity || "-")}</div></div></div>
+    <h3>Steps</h3>
+    <ul class="steps">${s.done.map(t => `<li class="done">${esc(t)}</li>`).join("")}${s.pending.map(t => `<li>${esc(t)}</li>`).join("") || ""}</ul>
+    ${s.done.length + s.pending.length ? "" : `<div class="muted">No steps yet.</div>`}
+    <h3>Measurements</h3>
+    ${s.measurements.map(m => `<div class="row"><div class="body"><b>${esc(m.quantity)}</b> = ${esc(m.value ?? "missing")} ${esc(m.unit || "")}<div class="meta">${esc(m.source)}</div></div></div>`).join("") || `<div class="muted">None yet.</div>`}
+    <h3>Configuration</h3>
+    ${Object.entries(s.config).map(([k, v]) => `<div class="meta">${esc(k)} = ${esc(v)}</div>`).join("") || `<div class="muted">None recorded.</div>`}`;
+}
+
+function renderEvents(list) {
+  $("pane-events").innerHTML = list.map(e => {
+    const p = e.payload || {};
+    const what = p.message || p.text || p.label || p.concept || p.quantity && `${p.quantity} = ${p.value} ${p.unit || ""}` || p.tool || p.zone || p.name || "";
+    return `<div class="row"><div class="body"><b>${esc(e.type)}</b> ${esc(what)}
+      <div class="meta">${new Date(e.ts * 1000).toLocaleTimeString()} · ${esc(e.source)}${e.camera ? " · " + esc(e.camera) : ""}${e.zone ? " · " + esc(e.zone) : ""}</div></div></div>`;
+  }).join("") || `<div class="muted">No events yet.</div>`;
+}
+
+// ---------- controls ----------
+$("pauseBtn").onclick = async () => { const r = await post("/api/privacy", {paused: !paused}); paused = r.paused; refresh(); };
+$("privBtn").onclick = async () => { const on = !$("privBtn").classList.contains("on"); await post("/api/privacy", {private: on}); toast(on ? "Private mode: nothing is stored." : "Private mode off."); refresh(); };
+$("teachBtn").onclick = async () => {
+  if (!running) return toast("Start the camera and point it at the object first.");
+  const name = prompt("What should I call the object in front of the camera?");
+  if (!name) return;
+  const r = await post("/api/teach", {name});
+  addMsg("a", r.summary || r.error); speak(r.summary || r.error); refresh();
+};
+
+refresh();
+setInterval(refresh, 8000);
+</script>
+</body>
+</html>

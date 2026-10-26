@@ -1,0 +1,51 @@
+[project]
+name = "forgemind"
+version = "0.1.0"
+description = "Workshop assistant with eyes, ears and memory: a static bench camera + a phone you carry, a persistent world memory, and an agent on Meta's Muse models."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-dotenv>=1.0",
+    "numpy>=1.26",
+    "pillow>=10.0",
+    # OpenAI-compatible client: Meta Model API (api.meta.ai/v1), and hosted
+    # open-weights endpoints (Fireworks, Baseten, Modal).
+    "openai>=1.40",
+    # ArUco/AprilTag zone markers and the USB static camera client.
+    "opencv-python-headless>=4.8",
+]
+
+[project.optional-dependencies]
+# The gallery app's visual memory: CLIP ViT-B/32 (ONNX, CPU) + Qdrant Edge.
+# Pinned to the same versions as Multi_meta so similarity thresholds carry over.
+vision = [
+    "fastembed==0.8.0",
+    "qdrant-edge-py==0.7.2",
+]
+# Deploys hosted SAM 3 / 3.1 (deploy/modal_sam.py). Nothing GPU-related is
+# installed on your machine; the GPU image is built on Modal.
+deploy = [
+    "modal>=1.0",
+]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+forgemind = "forgemind.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["forgemind*"]
+
+[tool.setuptools.package-data]
+forgemind = ["server/static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

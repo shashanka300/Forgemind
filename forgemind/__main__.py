@@ -1,0 +1,142 @@
+"""ForgeMind command line.
+
+    forgemind serve [--zrok]          start the server (phone link printed)
+    forgemind static-cam --device 0   stream a USB webcam as the bench camera
+    forgemind tags                    print-ready AprilTag sheet for your zones
+    forgemind check                   show providers; test the model API + tool calling
+"""
+import argparse
+import json
+import sys
+from urllib.parse import quote
+
+
+def lan_ip():
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+def cmd_serve(args):
+    import uvicorn
+
+    from forgemind.config import Settings
+    from forgemind.runtime import Runtime
+    from forgemind.server.app import create_app
+    over = {}
+    if args.host:
+        over["host"] = args.host
+    if args.port:
+        over["port"] = args.port
+    if args.mock:
+        over["llm_provider"] = "mock"
+    s = Settings.from_env(**over)
+    print("loading models (first run downloads CLIP, ~600 MB)...")
+    rt = Runtime(s)
+    print(json.dumps(rt.describe(), indent=2))
+    suffix = f"/?t={quote(s.token)}" if s.token else "/"
+    print(f"\n  on this computer:  http://localhost:{s.port}{suffix}")
+    if s.host == "0.0.0.0":
+        print(f"  same Wi-Fi:        http://{lan_ip()}:{s.port}{suffix}")
+        print("  (browsers only allow the live camera over HTTPS or localhost; use --zrok for the phone)")
+    print(f"  bench webcam:      forgemind static-cam --server http://localhost:{s.port} --token {s.token}\n")
+    tunnel = None
+    if args.zrok:
+        from forgemind.server.tunnel import start_zrok
+        tunnel = start_zrok(s.port, s.token)
+    try:
+        uvicorn.run(create_app(rt), host=s.host, port=s.port, log_level="warning")
+    finally:
+        if tunnel:
+            tunnel.terminate()
+        rt.close()
+
+
+def cmd_static_cam(args):
+    from forgemind.cameras.static_cam import run
+    run(args.server, args.token, args.device, args.fps, args.show)
+
+
+def cmd_tags(args):
+    from forgemind.config import Settings
+    from forgemind.perception.zones import make_tag_sheet
+    s = Settings.from_env()
+    out = make_tag_sheet(s.zones, args.out)
+    print(f"wrote {out}: " + ", ".join(f"id {k} = {v}" for k, v in sorted(s.zones.items())))
+    print("Print at 100%, stick each tag where the phone will see it in that zone.")
+
+
+def cmd_check(args):
+    from forgemind.agent.tools import schemas
+    from forgemind.config import Settings
+    from forgemind.providers import build_llm
+    s = Settings.from_env()
+    print(f"llm provider: {s.llm_provider}   segmenter: {s.segmenter}   embedder: {s.embedder}")
+    if s.segmenter == "remote_sam":
+        from PIL import Image
+
+        from forgemind.providers.segmenters import RemoteSamSegmenter
+        seg = RemoteSamSegmenter(s.sam_url, s.sam_token, s.sam_min_score, timeout=180)
+        print(f"calling hosted SAM at {s.sam_url} (first call may cold-start)...")
+        dets = seg.segment(Image.new("RGB", (640, 480), (120, 120, 120)), s.concepts)
+        if seg.last_error:
+            print(f"SAM endpoint FAILED: {seg.last_error}")
+            sys.exit(1)
+        print(f"SAM endpoint OK: {len(dets)} detections on a blank test frame, {seg.last_ms} ms")
+    llm = build_llm(s)
+    print(f"agent model: {llm.model_for('agent')}   worker model: {llm.model_for('worker')}")
+    if s.llm_provider == "mock":
+        print("mock mode - nothing to call. Set FM_LLM_PROVIDER=meta and MODEL_API_KEY in .env.")
+        return
+    try:
+        models = llm.list_models()
+        print(f"models visible to this key ({len(models)}): {', '.join(models[:20])}")
+    except Exception as e:
+        print(f"listing models failed: {e}")
+    for role in ("agent", "worker"):
+        try:
+            res = llm.chat([{"role": "user", "content": "Where did I leave my multimeter?"}],
+                           tools=schemas(), model=llm.model_for(role))
+            calls = [(c.name, c.arguments) for c in res.tool_calls]
+            print(f"[{role}] {llm.model_for(role)}: tool calls={calls} text={res.content!r:.120}")
+            print(f"[{role}] usage: {res.usage}")
+        except Exception as e:
+            print(f"[{role}] {llm.model_for(role)} FAILED: {e}")
+            sys.exit(1)
+    print("OK: the model API answers and returns tool calls.")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="forgemind", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("serve", help="start the server")
+    p.add_argument("--host")
+    p.add_argument("--port", type=int)
+    p.add_argument("--zrok", action="store_true", help="public HTTPS link for the phone")
+    p.add_argument("--mock", action="store_true", help="force the mock model")
+    p.set_defaults(fn=cmd_serve)
+    p = sub.add_parser("static-cam", help="stream a USB webcam as the bench camera")
+    p.add_argument("--server", default="http://localhost:8770")
+    p.add_argument("--token", default="", help="the t= value from the printed link")
+    p.add_argument("--device", default="0", help="camera index or stream URL")
+    p.add_argument("--fps", type=float, default=1.0)
+    p.add_argument("--show", action="store_true", help="preview window (q quits)")
+    p.set_defaults(fn=cmd_static_cam)
+    p = sub.add_parser("tags", help="printable AprilTag sheet for the zones")
+    p.add_argument("--out", default="zone-tags.png")
+    p.set_defaults(fn=cmd_tags)
+    p = sub.add_parser("check", help="test the configured model API")
+    p.set_defaults(fn=cmd_check)
+    args = ap.parse_args(argv)
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()
