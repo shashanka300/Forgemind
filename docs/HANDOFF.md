@@ -36,6 +36,12 @@ Where the build stands and what to do next. Update this at the end of each work 
 1. ~~SAM access~~ Granted for both `facebook/sam3` and `facebook/sam3.1`.
 2. ~~`MODEL_API_KEY`~~ In `F:\Forgemind\.env` (git-ignored; never print it). `.env` also sets
    `FM_LLM_PROVIDER=meta`, `FM_AGENT_MODEL=muse-spark-1.3`, `FM_SEGMENTER=sam3`.
+3. **Bench lighting (user).** The bench camera is the user's 4K webcam (device 0, DirectShow,
+   sent at 2560 px). It works live (Oct 28: pliers and headphones detected), but the room is
+   too dark for SAM to see the boards. Needs a white desk lamp. After that, re-run
+   `bench-region` (only the keyboard is masked now, `FM_BENCH_MASK=[[0.205,0.571,0.793,0.911]]`;
+   don't mask the white laptop the boards sit on), then a live run: `forgemind serve` +
+   `forgemind static-cam --device 0 --token <t>` + phone.
 
 ## Next steps (in order)
 
