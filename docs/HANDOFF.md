@@ -12,17 +12,18 @@ Where the build stands and what to do next. Update this at the end of each work 
 | Full loop in mock mode (cameras → memory → agent → phone) | Works | 37 tests; phone page loads, chat round trip in browser |
 | Object registry + teach identity (F-OBJ-1..5) | Existed in skeleton; teaching improved | Teach now takes up to 3 views from the last 4 s of phone frames, asks SAM for the named concept if the frame's detections missed it, and says when it fell back to the centre of the view. Tests only (colour-block fixtures) |
 | Embedder calibration (`forgemind calibrate`) | Built | Synthetic smoke set only (see below). Real answer needs the user's photos |
-| SAM 3.1 via Model API (`FM_SEGMENTER=meta_sam`) | Built | Fake endpoint only |
-| Voice Transcribe relay (`/ws/asr`, phone AudioWorklet → server → Meta) | Built | Fake endpoint only; mic path not tried on a phone |
+| SAM 3.1 via Model API (`FM_SEGMENTER=meta_sam`) | **Works** | Live call on the workbench photo: reply format matches the parser, `c` scores and object ids come back, boxes match local SAM. ~2.3 s per concept (3 in parallel: 3.2 s) |
+| Voice Transcribe relay (`/ws/asr`, phone AudioWorklet → server → Meta) | **Works server-side** | Live: synthetic 16 kHz speech streamed through the relay; exact transcript ("2.5 millimeter", "3.3 volts"), final 0.25 s after release, first partial ~1 s in, connect+handshake ~1.3 s (phone buffers meanwhile). `endStream` shape accepted. Not yet tried with a real phone mic over zrok. The file endpoint (`/asr/transcribe`) returned "Malformed request" to a quick multipart test; unused by the app |
 | LLM fallback to Glimmer (`FM_FALLBACK_PROVIDER=compat`) | Built | Stub models only; no Glimmer server yet |
 | Perception Encoder embedder (`FM_EMBEDDER=pe`) | Built | Runs on the 5090: 16 crops ~60 ms, 2.7 GB VRAM. Thresholds not recalibrated |
 | Local SAM 3 (`FM_SEGMENTER=sam3`) | Runs on the 5090 | Two bench photos: ~490 ms for 12 concepts, 80 ms for one, 4.1 GB VRAM. SAM 3.1 detector weights give the same detections. Misses: soldering iron read as "screwdriver" in one photo; irons, stations and pliers missed in the other |
-| Muse Spark / Wonder via Model API | Code existed before | Not run: no `MODEL_API_KEY` yet |
+| Muse Spark / Wonder via Model API | **Works from India** | `forgemind check` OK: key sees 9 models (wonder, spark 1.1–1.3 + contributor, sam-3.1, voice-transcribe, image). Both return a correct `where_is` tool call; ~2.5 s Spark, ~4.5 s Wonder per call (~2.3k prompt tokens) |
 
 ## Blockers
 
 1. ~~SAM access~~ Granted for both `facebook/sam3` and `facebook/sam3.1`.
-2. **`MODEL_API_KEY`.** Not on this machine. The user adds it to `.env` themselves.
+2. ~~`MODEL_API_KEY`~~ In `F:\Forgemind\.env` (git-ignored; never print it). `.env` also sets
+   `FM_LLM_PROVIDER=meta`, `FM_AGENT_MODEL=muse-spark-1.3`, `FM_SEGMENTER=sam3`.
 
 ## Next steps (in order)
 
@@ -31,11 +32,15 @@ Where the build stands and what to do next. Update this at the end of each work 
    the user's own bench ("soldering iron" vs "soldering station"). Benchmark script:
    `sam_bench.py` (scratchpad; move into the repo if kept). `Sam3Segmenter` now runs
    under bf16 autocast (required).
-2. **When the key is in `.env`:** `forgemind check`; one `meta_sam` call on a real photo
-   (confirm the reply format and that `c` scores come back); one `/ws/asr` utterance from
-   a phone over zrok (confirm it works from India, the `endStream` message shape, and
-   time to final transcript).
-3. **Embedder crop test (Day 3), waiting on the user's photos.** Protocol:
+2. **API follow-up:** try push-to-talk from the real phone over zrok (mic permission,
+   AudioWorklet at 16 kHz on the phone's browser). Latency budget so far: Spark ~2.5 s per
+   call, so a one-tool turn (2 calls) is ~5 s, above the 4 s spoken-answer target. Options:
+   trim the system prompt, use the reply text from the tool-call turn, stream the reply.
+3. **Embedder crop test (Day 3), waiting on the user's video** (the user records a walk-through
+   instead of photos; we extract the per-object folders ourselves: SAM concept detection
+   on sampled frames, SAM 3.1 video tracker for identity, Whisper on the audio for names,
+   close/sharp views = "phone", small/far = "bench", then a contact-sheet review to merge
+   or drop tracks). Folder layout the extraction must produce:
    - 8–10 of the demo objects, **including look-alikes** (two screwdrivers, two hex keys).
    - One folder per object, named `<concept>-<which>` (e.g. `hex_key-2.5mm`,
      `screwdriver-red`); the part before `-` is what SAM is asked for.

@@ -11,9 +11,9 @@ to end on stand-ins.
 | Slot | Stand-in (no keys) | Target | Where | Switch | Status |
 |---|---|---|---|---|---|
 | Reasoning (agent + workers) | `mock` rule-based model | Muse Spark 1.3 (default), Muse Wonder (hard turns) | Model API | `FM_LLM_PROVIDER=meta` | Works |
-| Speech-to-text | Browser speech recognition | Muse Voice Transcribe (streaming) | Model API | automatic when `MODEL_API_KEY` is set | Built, tested against a fake endpoint (section 3) |
+| Speech-to-text | Browser speech recognition | Muse Voice Transcribe (streaming) | Model API | automatic when `MODEL_API_KEY` is set | Works: verified live through the relay (section 3) |
 | Segmentation, continuous | `clip_grid` (CLIP over tiles) | SAM 3 image model (open weights) | Local GPU | `FM_SEGMENTER=sam3` | Imports on Windows; waiting on `facebook/sam3` access |
-| Segmentation, on demand | — | SAM 3.1 `sam-3.1` | Model API | `meta_sam` | Built, tested against a fake endpoint (section 2B) |
+| Segmentation, on demand | — | SAM 3.1 `sam-3.1` | Model API | `meta_sam` | Works: verified live (section 2B) |
 | Embeddings | CLIP ViT-B/32 (CPU) | Perception Encoder PE-Core-L14-336, if the crop test wins | Local GPU | `FM_EMBEDDER=pe` | Built; runs on the 5090 (16 crops in ~60 ms, 2.7 GB) |
 | Fallback reasoning | — | Muse Glimmer 30B (Q4) | Local GPU | `FM_FALLBACK_PROVIDER=compat` | Switching built; Glimmer server not set up (section 4) |
 | Text-to-speech | Browser `speechSynthesis` | Unchanged; Kokoro-82M if the voice is poor | Phone / local | — | Works |
@@ -142,9 +142,9 @@ Built (`server/asr.py`): while *Hold* is pressed the phone opens `/ws/asr` and s
 PCM16 16 kHz mono from an AudioWorklet; the server relays it to the realtime endpoint in
 `PUSH_TO_TALK` mode, forwards cumulative partials to the text box, sends `endStream` on
 release and hands the final transcript to the chat. `MODEL_API_KEY` never leaves the
-server. Without a key the page uses the browser recognizer as before. Still to check
-with a real key: that it works from India, the exact `endStream` message shape, and how
-long the final transcript takes after release. Fallbacks: the browser
+server. Without a key the page uses the browser recognizer as before. Verified live from
+India: the `endStream` message is accepted, the final transcript arrives ~0.25 s after
+release, and connect + handshake takes ~1.3 s (the phone buffers audio until `ready`). Fallbacks: the browser
 recognizer (current), or Parakeet TDT 0.6B v3 / Whisper large-v3-turbo on the local GPU.
 
 ## 4. Fallback reasoning: Meta open weights
