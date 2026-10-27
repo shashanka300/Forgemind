@@ -9,8 +9,20 @@ import time
 from forgemind.memory.registry import fmt_ago
 
 
+STOP_WORDS = {"the", "a", "an", "to", "of", "i", "my", "on", "for"}
+
+
+def _stem(w):
+    """Crude suffix strip so 'wired'/'wire'/'wiring' and 'measured'/'measure' match."""
+    if len(w) >= 4 and not any(c.isdigit() for c in w):
+        w = re.sub(r"(ing|ed|es|e|s)$", "", w)
+        if len(w) >= 4 and w[-1] == w[-2] and w[-1] not in "aeiouls":
+            w = w[:-1]                                   # tinned -> tinn -> tin
+    return w
+
+
 def _words(s):
-    return set(re.findall(r"[a-z0-9.]+", (s or "").lower())) - {"the", "a", "an", "to", "of"}
+    return {_stem(w) for w in re.findall(r"[a-z0-9.]+", (s or "").lower())} - STOP_WORDS
 
 
 class Experiments:
@@ -105,9 +117,32 @@ class Experiments:
                                     " keyframe=COALESCE(?, keyframe) WHERE id=?",
                                     (time.time(), ev, keyframe, st["id"]))
                     return {"step_id": st["id"], "matched_plan": st["text"], "event_id": ev}
+            # The model sometimes logs a step the code already completed (e.g. after a
+            # measurement): don't record the same step twice within a minute.
+            for st in self.db.all("SELECT * FROM steps WHERE session_id=? AND status='done'"
+                                  " AND ts > ?", (sid, time.time() - 60)):
+                have = _words(st["text"])
+                if have and len(want & have) / len(have) >= 0.6:
+                    return {"step_id": st["id"], "matched_plan": st["text"], "event_id": st["event_id"],
+                            "already_done": True}
         sid_ = self._insert_step(sid, text, "tentative" if tentative else "done", source, keyframe)
         ev = self.db.one("SELECT event_id FROM steps WHERE id=?", (sid_,))["event_id"]
         return {"step_id": sid_, "matched_plan": None, "event_id": ev}
+
+    def complete_measure_step(self, sid, quantity, source="stated"):
+        """Mark the planned 'measure ...' step a measurement completes; returns its text.
+
+        Done in code rather than left to the model: with reasoning_effort=low,
+        Spark logged the value but skipped ticking off "measure the output".
+        """
+        want = _words(quantity) - _words("voltage current value reading")
+        for st in self.db.all("SELECT * FROM steps WHERE session_id=? AND status='planned'"
+                              " ORDER BY ord", (sid,)):
+            words = _words(st["text"])
+            if any(w.startswith("measur") or w in ("read", "check") for w in words) and want & words:
+                self.log_step(sid, st["text"], source=source)
+                return st["text"]
+        return None
 
     def log_measurement(self, sid, quantity, value, unit=None, source="stated",
                         keyframe=None, note=None):

@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 
 from forgemind.agent import prompts
-from forgemind.agent.tools import ToolBox, schemas
+from forgemind.agent.tools import NEEDS_PHRASING, ToolBox, schemas
 from forgemind.providers.openai_compat import image_part
 
 MAX_STEPS = 6
@@ -44,11 +44,11 @@ class Agent:
         self.ctx.memory.db.execute("INSERT INTO conversation(ts,role,content) VALUES(?,?,?)",
                                    (time.time(), role, content))
 
-    def _user_message(self, text):
+    def _user_message(self, text, prefix=""):
         llm, p = self.ctx.llm, self.ctx.perception
         if not (self.ctx.settings.send_frames and getattr(llm, "supports_vision", False)):
-            return {"role": "user", "content": text}
-        parts = [{"type": "text", "text": text}]
+            return {"role": "user", "content": prefix + text}
+        parts = [{"type": "text", "text": prefix + text}]
         for cam, label in (("static", "bench camera"), ("mobile", "phone camera")):
             item = p.latest.get(cam)
             if item and time.time() - item["ts"] < 30:
@@ -60,9 +60,11 @@ class Agent:
         t0 = time.perf_counter()
         with self._lock:
             llm = self.ctx.llm
-            system = prompts.SYSTEM + "\n\nCurrent situation:\n" + prompts.situation(self.ctx)
-            messages = [{"role": "system", "content": system}, *self._history(),
-                        self._user_message(text)]
+            # The system prompt stays identical every turn so the provider can cache
+            # it (with the tool schemas); the changing situation rides on the user turn.
+            situation = "[Current situation]\n" + prompts.situation(self.ctx) + "\n[User says]\n"
+            messages = [{"role": "system", "content": prompts.SYSTEM}, *self._history(),
+                        self._user_message(text, prefix=situation)]
             self._remember("user", text)
             self.ctx.memory.db.log_event("speech", "stated", {"text": text})
             trace, reply = [], None
@@ -76,12 +78,19 @@ class Agent:
                                                  "function": {"name": c.name,
                                                               "arguments": json.dumps(c.arguments)}}
                                                 for c in res.tool_calls]})
+                step = []
                 for c in res.tool_calls:
                     out = self.tools.run(c.name, c.arguments)
-                    trace.append({"tool": c.name, "args": c.arguments,
-                                  "summary": out.get("summary"), "error": out.get("error")})
+                    step.append({"tool": c.name, "args": c.arguments,
+                                 "summary": out.get("summary"), "error": out.get("error")})
                     messages.append({"role": "tool", "tool_call_id": c.id,
                                      "content": json.dumps(out, default=str)[:12000]})
+                trace += step
+                if all(s["summary"] and not s["error"] and s["tool"] not in NEEDS_PHRASING
+                       for s in step):
+                    # The tools' summaries are the answer: speak them, skip a model call.
+                    reply = " ".join(dict.fromkeys(s["summary"] for s in step))
+                    break
             if reply is None:
                 reply = trace[-1]["summary"] if trace else "Sorry, I got stuck on that."
             self._remember("assistant", reply)

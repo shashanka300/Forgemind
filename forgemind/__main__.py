@@ -202,6 +202,18 @@ def cmd_concepts(args):
     print(f"annotated frames: {out}")
 
 
+def cmd_agent_eval(args):
+    import tempfile
+
+    from forgemind.agent_eval import run
+    from forgemind.config import Settings
+    s = Settings.from_env(token="off", data_dir=tempfile.mkdtemp(prefix="fm-eval-"),
+                          vector_backend="numpy", embedder="hash")
+    if args.model:
+        s.agent_model = args.model
+    run(s, out=args.out, frames=args.frames)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="forgemind", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -255,6 +267,11 @@ def main(argv=None):
     p.add_argument("--segmenter", help="override FM_SEGMENTER")
     p.add_argument("--out", help="folder for annotated frames")
     p.set_defaults(fn=cmd_concepts)
+    p = sub.add_parser("agent-eval", help="scripted turns against the real model: tools, latency, cost")
+    p.add_argument("--model", help="override FM_AGENT_MODEL for this run")
+    p.add_argument("--frames", action="store_true", help="attach bench + phone frames like live use")
+    p.add_argument("--out", help="JSON results path")
+    p.set_defaults(fn=cmd_agent_eval)
     p = sub.add_parser("check", help="test the configured model API")
     p.set_defaults(fn=cmd_check)
     args = ap.parse_args(argv)

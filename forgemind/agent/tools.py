@@ -26,6 +26,10 @@ If the display is not readable, value is null. Never guess digits."""
 # TEACH_WINDOW_S seconds (the phone sends a frame every ~0.5-1 s).
 TEACH_VIEWS = 3
 TEACH_WINDOW_S = 4.0
+# Tools whose `summary` needs the model to phrase an answer (it lists or
+# compares things). Every other tool's summary is already the spoken reply, so
+# the agent skips the second model call (PRD: spoken answer under 4 s).
+NEEDS_PHRASING = {"inspect_scene", "compare_sessions"}
 
 
 # -- argument models ----------------------------------------------------------
@@ -118,7 +122,7 @@ SPECS = {
     "go_look_at": (GoLookAt, "Ask the user to point the phone at a zone or object, e.g. when memory is stale or uncertain. Non-blocking; memory updates when they do."),
     "read_closeup": (ReadCloseup, "Ask for a close-up photo and read an instrument display or label from it. Logs the reading as a measurement if a session is active."),
     "highlight": (Highlight, "Highlight an object on the phone's live view, or show its last-seen card if it isn't in view."),
-    "watch_bench": (WatchBench, "Start a safety watch: 'unattended' (object on bench, user away) or 'present' (e.g. smoke)."),
+    "watch_bench": (WatchBench, "Start a safety watch when the user asks you to watch, keep an eye on or monitor something: 'unattended' (object on the bench while the user is away, e.g. the soldering iron) or 'present' (e.g. smoke). Not for finding objects."),
     "teach_object": (TeachObject, "Remember the object in front of the phone under a personal name."),
     "start_session": (StartSession, "Start a new experiment/work session (repeats carry over unfinished steps)."),
     "resume_session": (ResumeSession, "Resume a session: last state, done and pending steps, next step."),
@@ -133,9 +137,17 @@ SPECS = {
 }
 
 
+# Not offered to the model in conversation: alerts come from the safety watch,
+# and in a conversation the spoken reply already reaches the user. With
+# reasoning_effort=low, Spark called `alert` for small talk ("Sent.").
+AGENT_HIDDEN = {"alert"}
+
+
 def schemas():
     out = []
     for name, (model, desc) in SPECS.items():
+        if name in AGENT_HIDDEN:
+            continue
         params = model.model_json_schema()
         params.pop("title", None)
         out.append({"type": "function",
@@ -397,7 +409,12 @@ class ToolBox:
                                                  note=a.note)
         if a.value is None:
             return {**r, "summary": f"I logged {a.quantity} as missing - tell me the value when you have it."}
-        return {**r, "summary": f"Logged {a.quantity} = {a.value:g} {a.unit or ''}".rstrip() + "."}
+        summary = f"Logged {a.quantity} = {a.value:g} {a.unit or ''}".rstrip() + "."
+        done = self.mem.experiments.complete_measure_step(s["id"], a.quantity, a.source)
+        if done:
+            nxt = self.mem.experiments.state(s["id"])["next"]
+            summary += f" Marked '{done}' done." + (f" Next: {nxt}." if nxt else "")
+        return {**r, "completed_step": done, "summary": summary}
 
     def set_config(self, a: SetConfig):
         s = self._session()

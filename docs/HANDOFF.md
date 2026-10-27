@@ -2,7 +2,7 @@
 
 Where the build stands and what to do next. Update this at the end of each work session.
 
-**Last updated:** Oct 27, 2026 (Day 4 started). **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
+**Last updated:** Oct 27, 2026 (Day 5). **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
 **Branch:** `main`. Check `git status -sb` for unpushed commits.
 
 ## Status
@@ -13,6 +13,7 @@ Where the build stands and what to do next. Update this at the end of each work 
 | Object registry + teach identity (F-OBJ-1..5) | Existed in skeleton; teaching improved | Teach now takes up to 3 views from the last 4 s of phone frames, asks SAM for the named concept if the frame's detections missed it, and says when it fell back to the centre of the view. Tests only (colour-block fixtures) |
 | Replay test (`forgemind replay`) | **Built + run** | Video → real pipeline (gate, SAM 3.1, PE, registry), mock model, no API. Fixed cam (overhead, 70 s): 16 entities / 19 false "disappeared" before the fixes → **9 entities, all real; 1 correct move (LCD); 1 correct disappearance (headset band picked up)**. Handheld walk-through as phone frames: 27 entities in a cluttered room, ~4 duplicates (a steel bottle split in 3, 1-sighting fragments) |
 | Hand-aware perception | **Built** | New objects need 2 frames in a row (`FM_CONFIRM_NEW`); on the bench an object overlapping a hand/person box never creates an entity; a covered object isn't "missing"; "gone" needs 3 misses and 10 s; move linking: a same-concept object the bench saw go missing within 120 s matches at `match_min_sim - 0.15` |
+| Agent on Muse Spark (Day 5) | **Under target** | `forgemind agent-eval`: 14 scripted turns on a fixed world, real Spark. Baseline median 8.2 s / max 12.9 s / $0.149. Now **median 2.2–2.5 s, max 3.6–6.3 s, 13–14/14 tools, $0.03–0.04 per 14 turns** (`--frames` adds ~700 tokens, no measurable delay). Changes: speak a tool's summary directly unless it needs phrasing (`NEEDS_PHRASING` = inspect_scene, compare_sessions) → ~1.07 calls/turn; static system prompt (situation moved to the user turn) so the prefix caches; `FM_REASONING_EFFORT=low`; `alert` hidden from the agent (low effort called it for small talk); a measurement completes its planned "measure …" step in code; step matching stems words (wired/wire, tinned/tin). Spoken answer ≈ 0.25 s transcript + ~2.5 s agent. Wonder: not used for live turns (slower, 3–5x cost); candidate for report review (Day 8) |
 | `where_is` end to end (acceptance #1) | **Built, tested** | Answers zone + camera + time; "last seen" card shows a server-rendered snapshot (`/api/entities/{id}/snapshot`, keyframe zoomed on the object, box drawn); if not in view it **seeks** for 120 s: the first phone frame containing the object pushes a live highlight + "There's your X." (event `found`). Test `tests/test_where_is.py` runs the full bench → shelf → ask → arrive scenario. Verified in the browser pane with SAM 3.1 + PE on the workbench photo (cards, snapshot, highlight). Not yet on the real phone |
 | Embedder calibration (`forgemind calibrate`) | **Decided: PE** | Real cross-camera test on Assembly101 (see below). `.env` now `FM_EMBEDDER=pe`, teach 0.835, match 0.90 (provisional). Text-search floor per embedder (PE 0.19, CLIP 0.22) |
 | SAM 3.1 via Model API (`FM_SEGMENTER=meta_sam`) | **Works** | Live call on the workbench photo: reply format matches the parser, `c` scores and object ids come back, boxes match local SAM. ~2.3 s per concept (3 in parallel: 3.2 s) |
@@ -36,9 +37,8 @@ Where the build stands and what to do next. Update this at the end of each work 
    `sam_bench.py` (scratchpad; move into the repo if kept). `Sam3Segmenter` now runs
    under bf16 autocast (required).
 2. **API follow-up:** try push-to-talk from the real phone over zrok (mic permission,
-   AudioWorklet at 16 kHz on the phone's browser). Latency budget so far: Spark ~2.5 s per
-   call, so a one-tool turn (2 calls) is ~5 s, above the 4 s spoken-answer target. Options:
-   trim the system prompt, use the reply text from the tool-call turn, stream the reply.
+   AudioWorklet at 16 kHz on the phone's browser). Agent latency is now under target
+   (see Status); re-run `forgemind agent-eval` after prompt or tool changes (~$0.04).
 3. **Embedder decision (Day 3): done on public data.** Assembly101 sample, one recording
    (`nusar-2021_action_both_9011-a01…`, CC BY-NC 4.0, internal testing only; downloaded to
    the session scratchpad, not the repo). At t=139.5 s, 9 parts hand-matched across 5 fixed

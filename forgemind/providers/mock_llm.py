@@ -83,7 +83,7 @@ class MockModel:
         text = last.get("content")
         if isinstance(text, list):
             text = " ".join(p.get("text", "") for p in text if p.get("type") == "text")
-        utter = (text or "").strip()
+        utter = (text or "").split("[User says]\n")[-1].strip()   # drop the situation block
         # Drop a leading wake word / politeness.
         utter = re.sub(r"^(?:hey |ok )?(?:forge(?:mind)?|jarvis)[,:]?\s*", "", utter, flags=re.I)
         utter = re.sub(r"^(?:can you |could you |please |let's |lets )+", "", utter, flags=re.I)

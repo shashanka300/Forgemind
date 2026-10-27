@@ -148,19 +148,43 @@ def test_openai_compat_provider_against_fake_meta_endpoint(rt):
     rt.llm = rt.ctx.llm = llm
     rt.perception.process("static", scene([("multimeter", .05, .4, .2, .6)]))
     r = rt.agent.handle("where's the multimeter?")
-    assert r["reply"] == "It's on the bench, left side."
+    # where_is's summary is the answer: spoken directly, no second model call
+    assert len(seen) == 1
+    assert r["reply"].startswith("The multimeter was last seen on the bench (left side)")
     assert r["trace"][0]["tool"] == "where_is"
     assert seen[0]["model"] == "muse-wonder-1.0"
     assert {t["function"]["name"] for t in seen[0]["tools"]} >= {"where_is", "go_look_at"}
-    assert seen[0]["messages"][0]["role"] == "system"
-    assert "Known objects: multimeter @ bench" in seen[0]["messages"][0]["content"]
+    # the system prompt is the same every turn (cacheable); the situation rides on the user turn
+    from forgemind.agent import prompts
+    assert seen[0]["messages"][0] == {"role": "system", "content": prompts.SYSTEM}
+    user = seen[0]["messages"][-1]["content"]
+    assert "Known objects: multimeter @ bench" in user and user.endswith("where's the multimeter?")
+
+    # a tool that needs phrasing still gets the second call, with the tool result
+    seen.clear()
+    def handler2(request):
+        body = json.loads(request.content)
+        seen.append(body)
+        if body["messages"][-1]["role"] == "tool":
+            msg = {"role": "assistant", "content": "Just the multimeter, on the left."}
+        else:
+            msg = {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "call_2", "type": "function",
+                "function": {"name": "inspect_scene", "arguments": json.dumps({"camera": "static"})}}]}
+        return httpx.Response(200, json={
+            "id": "x", "object": "chat.completion", "created": 0, "model": body["model"],
+            "choices": [{"index": 0, "message": msg, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}})
+    llm.client._client._transport = httpx.MockTransport(handler2)
+    r = rt.agent.handle("what's on the bench?")
+    assert len(seen) == 2 and r["reply"] == "Just the multimeter, on the left."
     tool_msg = seen[1]["messages"][-1]
-    assert tool_msg["role"] == "tool" and tool_msg["tool_call_id"] == "call_1"
+    assert tool_msg["role"] == "tool" and tool_msg["tool_call_id"] == "call_2"
 
 
 def test_tool_schemas_are_valid_and_validation_rejects_bad_args(rt):
     names = [s["function"]["name"] for s in schemas()]
-    assert len(names) == len(set(names)) == 17
+    assert len(names) == len(set(names)) == 16 and "alert" not in names   # alert hidden from the agent
     for s in schemas():
         assert s["function"]["parameters"]["type"] == "object"
     out = rt.agent.tools.run("log_measurement", {"quantity": "v"})
@@ -168,3 +192,18 @@ def test_tool_schemas_are_valid_and_validation_rejects_bad_args(rt):
     out = rt.agent.tools.run("log_step", {"text": "x"})
     assert "no active session" in out["error"]
     assert "unknown tool" in rt.agent.tools.run("rm_rf", {})["error"]
+
+
+def test_measurement_completes_its_planned_step_once(rt):
+    tb = rt.agent.tools
+    tb.run("start_session", {"name": "divider"})
+    tb.run("plan_steps", {"steps": ["wire the divider", "measure the output", "swap R2"]})
+    tb.run("log_step", {"text": "wired the divider"})
+    out = tb.run("log_measurement", {"quantity": "output voltage", "value": 3.3, "unit": "V"})
+    assert out["completed_step"] == "measure the output"
+    assert out["summary"] == "Logged output voltage = 3.3 V. Marked 'measure the output' done. Next: swap R2."
+    again = tb.run("log_step", {"text": "measured the output"})       # the model logs it too
+    assert again.get("already_done")
+    st = rt.memory.experiments.state(rt.memory.experiments.active()["id"])
+    assert st["done"].count("measure the output") == 1
+    assert st["next"] == "swap R2"
