@@ -157,3 +157,32 @@ def test_untaught_object_moved_on_bench_is_linked_not_duplicated(rt, monkeypatch
     monkeypatch.setattr(rt.memory.registry, "match", real_match)
     assert ("moved", "multimeter") in events_of(out)
     assert [e["id"] for e in rt.memory.registry.list()] == [eid]
+
+
+def test_one_label_per_object_and_no_scene_boxes():
+    from forgemind.perception.pipeline import one_label_per_object
+    from forgemind.providers.base import Detection
+    dets = [Detection("phone", (0.1, 0.1, 0.3, 0.3), 0.90),
+            Detection("multimeter", (0.1, 0.1, 0.31, 0.3), 0.95),
+            Detection("soldering station", (0.0, 0.0, 1.0, 0.95), 0.68),
+            Detection("hand", (0.0, 0.0, 0.9, 0.9), 0.9)]
+    assert sorted(d.concept for d in one_label_per_object(dets)) == ["hand", "multimeter"]
+
+
+def test_watch_matches_taught_name_not_just_detector_concept(rt):
+    # SAM calls the iron a "screwdriver"; the user taught it as "soldering iron"
+    from conftest import COLORS
+    COLORS["screwdriver"] = COLORS["soldering iron"]
+    try:
+        rt.settings.concepts = ["screwdriver", "person"]
+        rt.perception.process("mobile", scene([("screwdriver", .4, .4, .6, .6)], tag=0),
+                              ts=time.time())
+        rt.agent.tools.run("teach_object", {"name": "Soldering Iron"})
+        now = time.time()
+        rt.safety.last_present = now - 600                 # user away for 10 min
+        rt.perception.process("static", scene([("screwdriver", .05, .4, .25, .6)]), ts=now)
+        alerts = rt.safety.evaluate(now)
+        assert [a["severity"] for a in alerts] == ["warning"]
+        assert "soldering iron" in alerts[0]["message"]
+    finally:
+        del COLORS["screwdriver"]

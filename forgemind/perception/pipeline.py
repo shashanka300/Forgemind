@@ -40,6 +40,12 @@ OCCLUDED_OVERLAP = 0.20
 # A candidate new object must reappear within this long to be confirmed.
 CONFIRM_WITHIN_S = 5.0
 CONFIRM_IOU = 0.3
+# Object boxes larger than this are scene-level labels, not objects (SAM boxes
+# the whole photo for "soldering station").
+MAX_OBJECT_AREA = 0.6
+# Two different object concepts on one box (SAM said "phone" 0.90 and
+# "multimeter" 0.95 for the same meter): keep the higher score.
+CROSS_CONCEPT_IOU = 0.7
 # Move linking: a same-concept object the bench camera saw go missing within
 # MOVE_LINK_S is matched at a relaxed similarity (match_min_sim - MOVE_RELAX):
 # "it left its spot and one like it appeared over there" is most likely a move.
@@ -74,6 +80,22 @@ def iou(a, b):
         return 0.0
     inter = w * h
     return inter / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter)
+
+
+def one_label_per_object(dets):
+    """Drop scene-sized object boxes and duplicate labels of the same object."""
+    keep, objects = [], []
+    for d in sorted(dets, key=lambda d: -d.score):
+        if d.concept in PRESENCE_CONCEPTS or d.concept in HAZARD_CONCEPTS:
+            keep.append(d)
+            continue
+        if d.area > MAX_OBJECT_AREA:
+            continue
+        if any(iou(d.box, o.box) >= CROSS_CONCEPT_IOU for o in objects):
+            continue
+        objects.append(d)
+        keep.append(d)
+    return keep
 
 
 def region_of(box):
@@ -185,7 +207,7 @@ class Perception:
                 return {"camera": camera, "zone": zone, "skipped": True, "events": [],
                         "detections": prev.get("detections", []), "keyframe": None}
         self.last_processed[camera] = ts
-        dets = self.seg.segment(image, self.s.concepts)
+        dets = one_label_per_object(self.seg.segment(image, self.s.concepts))
         keyframe = None if self.private else self._save_keyframe(camera, image, ts)
 
         out_dets, events, claimed = [], [], set()
@@ -233,7 +255,11 @@ class Perception:
                     events.append({"type": r["event"], "entity_id": r["entity_id"],
                                    "label": r["label"], "zone": zone})
                 if camera == "static":
+                    # watches match the taught name too: SAM never says "soldering
+                    # iron", but the user's taught iron is labelled that way
                     self.safety.seen(d.concept, ts)
+                    if r["label"] and r["label"] != d.concept:
+                        self.safety.seen(r["label"], ts)
             out_dets.append(item)
 
         self.pending[camera] = candidates

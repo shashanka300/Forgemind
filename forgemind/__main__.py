@@ -189,6 +189,19 @@ def cmd_bench_region(args):
         print("written to .env")
 
 
+def cmd_concepts(args):
+    from forgemind.concepts import probe
+    from forgemind.config import Settings
+    from forgemind.providers import build_segmenter
+    s = Settings.from_env()
+    if args.segmenter:
+        s.segmenter = args.segmenter
+    phrases = [p.strip() for p in (args.phrases or ",".join(s.concepts)).split(",") if p.strip()]
+    out = args.out or str(s.data_dir / "concepts")
+    probe(build_segmenter(s, None), args.sources, phrases, args.min_score, out)
+    print(f"annotated frames: {out}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="forgemind", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -235,6 +248,13 @@ def main(argv=None):
     p.add_argument("--concepts", help="bench objects to protect from masks (default FM_CONCEPTS)")
     p.add_argument("--write", action="store_true", help="write the values into .env")
     p.set_defaults(fn=cmd_bench_region)
+    p = sub.add_parser("concepts", help="compare SAM phrasings on sample frames")
+    p.add_argument("sources", nargs="+", help="images, or video.mp4@seconds")
+    p.add_argument("--phrases", help="comma-separated (default: FM_CONCEPTS)")
+    p.add_argument("--min-score", type=float, default=0.4)
+    p.add_argument("--segmenter", help="override FM_SEGMENTER")
+    p.add_argument("--out", help="folder for annotated frames")
+    p.set_defaults(fn=cmd_concepts)
     p = sub.add_parser("check", help="test the configured model API")
     p.set_defaults(fn=cmd_check)
     args = ap.parse_args(argv)

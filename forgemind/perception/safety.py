@@ -45,8 +45,10 @@ class Safety:
             self.last_present = max(self.last_present, ts or time.time())
 
     def seen(self, concept, ts=None):
+        """`concept` is a detector concept or a taught object's name (case-insensitive)."""
+        key = concept.lower().strip()
         with self._lock:
-            self.last_seen[concept] = max(self.last_seen.get(concept, 0), ts or time.time())
+            self.last_seen[key] = max(self.last_seen.get(key, 0), ts or time.time())
 
     def user_away_for(self, now=None):
         return max(0.0, (now or time.time()) - self.last_present)
@@ -56,7 +58,7 @@ class Safety:
         fired = []
         for w in self.watches():
             kind, concept = w["kind"], w["concept"]
-            seen = self.last_seen.get(concept, 0)
+            seen = self.last_seen.get(concept.lower().strip(), 0)
             if now - seen > SEEN_WINDOW_S[kind]:
                 continue
             if w["last_fired"] and now - w["last_fired"] < COOLDOWN_S[kind]:

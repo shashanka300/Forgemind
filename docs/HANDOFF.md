@@ -90,11 +90,23 @@ Where the build stands and what to do next. Update this at the end of each work 
    `FM_COMPAT_*` at it, confirm tool calls with `forgemind check`.
 6. **Day 3 remaining:** bench region is built (`FM_BENCH_ROI`/`FM_BENCH_MASK`, suggested by
    `forgemind bench-region <video> [--roi] [--write]`; masks never cover detected bench
-   objects; ROI crop is opt-in). Set it once the bench camera's final mount is fixed (masks
-   are per camera position). Tune `FM_CONCEPTS` to the demo objects (add decoys like
-   "stopwatch"); try teaching on the real phone over zrok. Then Day 4: `where_is` end to end.
-   Note: "covered isn't missing" can delay a real "gone" while hands stay nearby (headset band
-   picked up at ~55 s not reported by 69 s); revisit if it hurts the safety watch.
+   objects; ROI crop is opt-in). Set it once the bench camera's final mount is fixed.
+   **Concepts tuned** with `forgemind concepts` (6 desk frames + 8 web photos):
+   - SAM 3.1 **never** answers to "soldering iron" (0 hits on 6 clear iron photos); irons
+     come out as "soldering pen" (0.59–0.75; also fires on ballpoint pens, 0.81) or
+     "screwdriver" (0.78–0.80). So the iron must be **taught as "soldering iron"**; the
+     safety watch now matches taught names, not just detector concepts (tested).
+   - "multimeter" fires on the user's digital stopwatch (0.94); no timer phrasing fires
+     ("stopwatch", "kitchen timer", "timer", "digital clock", "egg timer"): teach the meter.
+   - "soldering station" and "laptop" box whole scenes: dropped. Object boxes > 60% of the
+     frame are now discarded; one label per object (cross-concept IoU ≥ 0.7 keeps the higher).
+   - "lcd display"/"lcd screen" hit monitors and meter screens, not LCD modules; "circuit
+     board" finds the modules (0.94–0.97). "wall charger" finds the cube charger (0.57),
+     "copper coil" the coil (0.63). "sponge" (iron-stand sponge) is reliable (0.66–0.82).
+   - Each concept costs ~37 ms/frame (14 concepts ≈ 780 ms on the 5090).
+   Remaining: try teaching on the real phone over zrok. Then Day 4: `where_is` end to end.
+   Note: "covered isn't missing" can delay a real "gone" while hands stay nearby; revisit if
+   it hurts the safety watch.
 7. **Added from the personal health agent paper** (PRD §7.4, Nature 2026), scheduled in §13:
    - F-AGT-8 explicit `missing` / `stale` fields from tools (Day 6, P0)
    - F-OUT-5 deterministic citation check on reports (Day 8, P0)

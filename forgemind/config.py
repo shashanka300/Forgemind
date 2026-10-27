@@ -25,8 +25,10 @@ def _bool(name, default):
     return _env(name, str(default)).lower() in ("1", "true", "yes", "on")
 
 
-DEFAULT_CONCEPTS = ("multimeter,soldering iron,screwdriver,hex key,pliers,breadboard,"
-                    "circuit board,flux,laptop,person,hand,smoke")
+# "soldering pen", not "soldering iron": SAM 3.1 never answers to the latter.
+# Teach the iron as "soldering iron" (the safety watch matches taught names).
+DEFAULT_CONCEPTS = ("multimeter,soldering pen,screwdriver,hex key,pliers,breadboard,"
+                    "circuit board,flux,person,hand,smoke")
 DEFAULT_ZONES = '{"0": "bench", "1": "shelf", "2": "drawer", "3": "cabinet", "4": "kitchen"}'
 # Detections of these concepts mean "someone is here"; they are never stored
 # as objects in memory (no identities for people).
