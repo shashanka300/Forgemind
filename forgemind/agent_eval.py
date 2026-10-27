@@ -24,6 +24,7 @@ COLORS = {"soldering pen": (220, 30, 30), "multimeter": (30, 60, 220),
 # (user text, acceptable tool sets): the turn passes if the tools called match
 # one of them exactly (as a set). {} = answering without a tool.
 SCRIPT = [
+    ("let's continue the soldering headers job from yesterday", [{"resume_session"}]),
     ("where is my hex key?", [{"where_is"}]),
     ("where did I leave the multimeter", [{"where_is"}, {"where_is", "highlight"}]),
     ("start a session called voltage divider test", [{"start_session"}]),
@@ -114,6 +115,16 @@ def build_world(settings, frames=False):
     p.process("static", scene([("multimeter", .45, .4, .6, .6), ("soldering pen", .05, .4, .25, .6),
                                ("hex key", .7, .4, .8, .55)]), ts=now - 300)
     p.process("mobile", scene([], tag=1), ts=now - 20)          # phone on the shelf
+    tb = rt.agent.tools                                          # yesterday's unfinished job
+    tb.run("start_session", {"name": "soldering headers"})
+    tb.run("plan_steps", {"steps": ["tin the pads", "solder pin 1", "solder the other pins",
+                                    "check continuity"]})
+    tb.run("log_step", {"text": "tinned the pads"})
+    tb.run("log_step", {"text": "soldered pin 1"})
+    tb.run("end_session", {})
+    for table in ("events", "steps", "measurements"):
+        rt.memory.db.execute(f"UPDATE {table} SET ts = ts - 86400 WHERE session_id IS NOT NULL"
+                             if table == "events" else f"UPDATE {table} SET ts = ts - 86400")
     return rt, llm
 
 

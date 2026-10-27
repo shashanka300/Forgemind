@@ -207,3 +207,46 @@ def test_measurement_completes_its_planned_step_once(rt):
     st = rt.memory.experiments.state(rt.memory.experiments.active()["id"])
     assert st["done"].count("measure the output") == 1
     assert st["next"] == "swap R2"
+
+
+def test_gaps_are_reported_not_filled(rt):
+    tb = rt.agent.tools
+    tb.run("start_session", {"name": "divider"})
+    tb.run("plan_steps", {"steps": ["wire the divider", "measure the output", "measure the input",
+                                    "swap R2"]})
+    tb.run("log_step", {"text": "wire the divider"})
+    tb.run("log_step", {"text": "measured the output"})          # done, but no value logged
+    tb.run("log_measurement", {"quantity": "input current", "value": None})
+    r = tb.run("resume_session", {})
+    assert r["missing"] == ["input current (logged without a value)",
+                            "a value for 'measure the output' (step done, nothing logged)"]
+    assert "Missing: input current (logged without a value); a value for 'measure the output'" in r["summary"]
+    assert "Next up: measure the input." in r["summary"]
+    rep = tb.run("generate_report", {})
+    assert len(rep["missing"]) == 2 and "flags 2 missing values" in rep["summary"]
+
+
+def test_where_is_reports_stale(rt):
+    rt.perception.process("static", scene([("multimeter", .05, .4, .2, .6)]), ts=time.time() - 7200)
+    out = rt.agent.tools.run("where_is", {"query": "multimeter"})
+    assert out["stale"] is True and out["confidence"] < 0.4
+    assert "may have moved" in out["summary"]
+
+
+def test_resume_yesterdays_session_states_pending_step(rt):
+    """Acceptance check #2: resume a previous day's session with the right next step."""
+    tb = rt.agent.tools
+    tb.run("start_session", {"name": "voltage divider test"})
+    tb.run("plan_steps", {"steps": ["wire the divider", "measure the output", "swap R2 for 22k"]})
+    tb.run("log_step", {"text": "wired the divider"})
+    tb.run("log_measurement", {"quantity": "output voltage", "value": 3.3, "unit": "V"})
+    tb.run("end_session", {})
+    db = rt.memory.db
+    for table in ("events", "steps", "measurements"):          # it all happened yesterday
+        db.execute(f"UPDATE {table} SET ts = ts - 86400")
+    tb.run("start_session", {"name": "something else"})       # another session in between
+    r = say(rt, "let's continue the voltage divider test")
+    assert r["trace"][0]["tool"] == "resume_session"
+    assert "Resuming 'voltage divider test', last active 1 day ago" in r["reply"]
+    assert "Next up: swap R2 for 22k." in r["reply"]
+    assert "output voltage = 3.3 V" in r["reply"]

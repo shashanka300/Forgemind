@@ -20,8 +20,11 @@ from forgemind.providers.openai_compat import image_part
 
 READ_PROMPT = """You read instrument displays from a photo. Target: {target}.
 Answer with JSON only: {{"value": number or null, "unit": string or null,
-"text": the exact characters on the display, "confidence": 0..1}}.
-If the display is not readable, value is null. Never guess digits."""
+"text": the exact characters on the display, "confidence": 0..1,
+"problem": null or a short reason when value is null}}.
+value is null when: the display is not readable, it is blank or off, it shows
+OL/overload or a dash, or more than one instrument display is visible (then say
+so in "problem"). Only give a unit you can see on the display. Never guess digits."""
 # Teaching takes the object from up to TEACH_VIEWS phone frames of the last
 # TEACH_WINDOW_S seconds (the phone sends a frame every ~0.5-1 s).
 TEACH_VIEWS = 3
@@ -206,6 +209,7 @@ class ToolBox:
                 summary += f" When you {near}, point the phone around and I'll highlight it."
             # (describe() already says when the sighting is stale)
         return {"found": True, "results": hits, "in_view": bool(in_view), "summary": summary,
+                "stale": top["stale"], "confidence": top["confidence"],
                 "seeking": not in_view and bool(top["last_seen"]),
                 "history": self.mem.registry.history(top["id"], 5)}
 
@@ -265,7 +269,8 @@ class ToolBox:
                 pass
         if reading.get("value") is None:
             why = ("reading displays needs a vision model (mock mode)"
-                   if not getattr(llm, "supports_vision", False) else "I couldn't read it clearly")
+                   if not getattr(llm, "supports_vision", False)
+                   else reading.get("problem") or "I couldn't read it clearly")
             return {"value": None, "keyframe": keyframe,
                     "summary": f"I got the close-up, but {why}. Tell me the value and I'll log it."}
         out = {"reading": reading, "keyframe": keyframe}
@@ -276,7 +281,7 @@ class ToolBox:
             out.update(self.mem.experiments.log_measurement(
                 s["id"], q, float(reading["value"]), reading.get("unit"), "instrument", keyframe,
                 note=f"display read '{reading.get('text')}' conf {reading.get('confidence')}"))
-            out["summary"] = f"The {a.target} reads {val}. Logged as {q}."
+            out["summary"] = f"The {a.target} reads {val}. Logged as {q}, read from the display."
         else:
             out["summary"] = f"The {a.target} reads {val}."
         return out
@@ -375,8 +380,11 @@ class ToolBox:
             bits.append("No pending steps.")
         if st["measurements"]:
             m = st["measurements"][-1]
-            bits.append(f"Last measurement: {m['quantity']} = {m['value']} {m['unit'] or ''}.".replace(" .", "."))
-        return {"state": st, "summary": " ".join(bits)}
+            if m["value"] is not None:
+                bits.append(f"Last measurement: {m['quantity']} = {m['value']:g} {m['unit'] or ''}.".replace(" .", "."))
+        if st["missing"]:
+            bits.append("Missing: " + "; ".join(st["missing"]) + ".")
+        return {"state": st, "missing": st["missing"], "summary": " ".join(bits)}
 
     def end_session(self, a: Empty):
         s = self.mem.experiments.end()
@@ -433,7 +441,8 @@ class ToolBox:
                 bits.append(f"{m['quantity']} hasn't been measured this time.")
         if len(bits) == 1:
             bits.append("no differences recorded yet.")
-        return {"comparison": c, "summary": " ".join(bits)}
+        missing = [m["quantity"] for m in c["measurements"] if m["current"] is None]
+        return {"comparison": c, "missing": missing, "summary": " ".join(bits)}
 
     def generate_report(self, a: GenerateReport):
         s = self.mem.experiments.find(a.session_name) if a.session_name else (
@@ -442,7 +451,11 @@ class ToolBox:
             raise ToolError("There's no session to report on.")
         r = reports.generate(self.mem.experiments, self.ctx.llm, s["id"], self.mem.reports_dir)
         self.ctx.hub.push({"type": "report", "url": r["url"], "name": s["name"]})
-        return {"url": r["url"], "summary": f"The report for '{s['name']}' is ready on your phone."}
+        missing = self.mem.experiments.gaps(s["id"])
+        summary = f"The report for '{s['name']}' is ready on your phone."
+        if missing:
+            summary += f" It flags {len(missing)} missing value{'s' * (len(missing) > 1)}."
+        return {"url": r["url"], "missing": missing, "summary": summary}
 
     def alert(self, a: Alert):
         self.ctx.hub.push({"type": "alert", "severity": a.severity, "message": a.message})

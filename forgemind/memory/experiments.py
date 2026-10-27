@@ -77,10 +77,11 @@ class Experiments:
         s = self.find(name) if name else (self.active() or self.find(None))
         if not s:
             return None
+        state = self.state(s["id"])          # before logging: "last active" means real work
         self._pause_others(keep=s["id"])
         self.db.execute("UPDATE sessions SET status='active', ended_at=NULL WHERE id=?", (s["id"],))
         self.db.log_event("session_resumed", "stated", {"name": s["name"]}, session_id=s["id"])
-        return self.state(s["id"])
+        return state
 
     def end(self, sid=None):
         s = self.get(sid) if sid else self.active()
@@ -175,10 +176,36 @@ class Experiments:
     def steps(self, sid):
         return self.db.all("SELECT * FROM steps WHERE session_id=? ORDER BY ord", (sid,))
 
+    def gaps(self, sid):
+        """What the record is missing (PRD F-AGT-8), as short phrases.
+
+        * a quantity whose latest measurement was logged without a value
+        * a done "measure/read/check X" step with no measurement of X at all
+        Planned steps aren't gaps: they just haven't happened yet.
+        """
+        missing = []
+        latest = {}
+        for m in self.measurements(sid):
+            latest[m["quantity"]] = m
+        for q, m in latest.items():
+            if m["value"] is None:
+                missing.append(f"{q} (logged without a value)")
+        measured = [_words(q) for q in latest]
+        for st in self.steps(sid):
+            words = _words(st["text"])
+            if st["status"] != "done" or not any(
+                    w.startswith("measur") or w in ("read", "check") for w in words):
+                continue
+            topic = words - _words("measure measured read check value reading voltage current")
+            if topic and not any(topic & q for q in measured):
+                missing.append(f"a value for '{st['text']}' (step done, nothing logged)")
+        return missing
+
     def state(self, sid):
         s = self.get(sid)
         steps = self.steps(sid)
-        last = self.db.one("SELECT MAX(ts) AS t FROM events WHERE session_id=?", (sid,))["t"]
+        last = self.db.one("SELECT MAX(ts) AS t FROM events WHERE session_id=? AND type NOT IN"
+                           " ('session_resumed', 'session_paused', 'session_ended')", (sid,))["t"]
         pending = [st["text"] for st in steps if st["status"] == "planned"]
         return {
             "session": {"id": s["id"], "name": s["name"], "status": s["status"],
@@ -191,6 +218,7 @@ class Experiments:
                               "source": m["source"]} for m in self.measurements(sid)][-10:],
             "config": {k: v["value"] for k, v in self.config(sid).items()},
             "next": pending[0] if pending else None,
+            "missing": self.gaps(sid),
         }
 
     def compare(self, a=None, b=None):
