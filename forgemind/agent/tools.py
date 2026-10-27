@@ -202,11 +202,9 @@ class ToolBox:
             summary = self.mem.registry.describe(top)
             if top["last_seen"]:
                 self.ctx.hub.seek(top["id"], top["label"])
-                where = f"the {top['zone']}" if top["zone"] else "there"
-                summary += (f" When you get to {where}, point the phone around and"
-                            " I'll highlight it.")
-            if top["stale"]:
-                summary += " It may have moved since, so I can ask you to check."
+                near = f"get to the {top['zone']}" if top["zone"] else "are near it"
+                summary += f" When you {near}, point the phone around and I'll highlight it."
+            # (describe() already says when the sighting is stale)
         return {"found": True, "results": hits, "in_view": bool(in_view), "summary": summary,
                 "seeking": not in_view and bool(top["last_seen"]),
                 "history": self.mem.registry.history(top["id"], 5)}

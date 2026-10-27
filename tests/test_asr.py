@@ -58,7 +58,7 @@ def test_asr_relay_partials_and_final(rt):
     up = FakeUpstream()
     with _client(rt, up) as c:
         with c.websocket_connect("/ws/asr?t=secret-token") as ws:
-            assert ws.receive_json() == {"type": "ready"}
+            assert ws.receive_json() == {"type": "ready", "hands_free": False}
             ws.send_bytes(b"\x00\x01" * 800)
             assert ws.receive_json() == {"type": "partial", "text": "heard 1600 bytes"}
             ws.send_text(json.dumps({"type": "end"}))
@@ -84,3 +84,40 @@ def test_asr_without_key_says_use_browser(rt):
             assert ws.receive_json()["type"] == "error"
         assert c.get("/api/state", headers={"Authorization": "Bearer secret-token"}
                      ).json()["providers"]["asr"] == "browser"
+
+
+class FakeEndpointing(FakeUpstream):
+    """ENDPOINTING mode: speechStart / partials / speechComplete per turn."""
+
+    async def send(self, data):
+        if isinstance(data, bytes):
+            self.audio += data
+            n = len(self.audio)
+            if n == 3200:
+                await self.inbox.put({"type": "speechStart", "turnId": 1})
+                await self.inbox.put({"type": "transcript", "final": False, "transcript": "where is"})
+            elif n == 6400:
+                await self.inbox.put({"type": "speechComplete", "turnId": 1,
+                                      "transcript": "where is the multimeter"})
+            elif n == 9600:
+                await self.inbox.put({"type": "speechComplete", "turnId": 2, "transcript": "  "})
+            elif n == 12800:
+                await self.inbox.put({"type": "speechComplete", "turnId": 3,
+                                      "transcript": "thanks"})
+            return
+        await super().send(data)
+
+
+def test_hands_free_forwards_each_turn(rt):
+    up = FakeEndpointing()
+    with _client(rt, up) as c:
+        with c.websocket_connect("/ws/asr?t=secret-token&mode=hands_free") as ws:
+            assert ws.receive_json() == {"type": "ready", "hands_free": True}
+            for _ in range(4):
+                ws.send_bytes(b"\x00\x00" * 1600)
+            got = [ws.receive_json() for _ in range(4)]
+            ws.send_text(json.dumps({"type": "end"}))
+    assert got == [{"type": "speech_start"}, {"type": "partial", "text": "where is"},
+                   {"type": "turn", "text": "where is the multimeter"},
+                   {"type": "turn", "text": "thanks"}]                  # empty turn dropped
+    assert up.sent[0]["mode"] == "ENDPOINTING"

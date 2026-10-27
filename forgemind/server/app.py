@@ -286,8 +286,9 @@ def create_app(rt):
             await socket.send_json({"type": "error", "text": "no MODEL_API_KEY: use browser speech"})
             await socket.close()
             return
+        hands_free = socket.query_params.get("mode") == "hands_free"
         try:
-            await rt.asr.run(socket)     # the phone sends the final text to /api/chat
+            await rt.asr.run(socket, hands_free)   # the phone sends each turn to /api/chat
         except WebSocketDisconnect:
             pass
         finally:

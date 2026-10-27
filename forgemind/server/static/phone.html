@@ -43,6 +43,8 @@ button:disabled{opacity:.5}
 .card img{width:84px;height:63px;object-fit:cover;border-radius:8px;background:#000;flex:none}
 .card .x{padding:4px 9px;border-radius:8px}
 .talk{display:flex;gap:8px;align-items:stretch}
+#hfBtn{white-space:nowrap}
+#hfBtn.on{background:var(--amber);color:#121110;border-color:var(--amber)}
 .talk input{flex:1;min-width:0;font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 #ptt{flex:none;width:64px;border-radius:12px;background:var(--amber);color:var(--amber-ink);border:none;font-weight:700;touch-action:none;user-select:none}
 #ptt.live{background:var(--red);color:#fff}
@@ -100,6 +102,7 @@ body.static .static-only{display:block}
 
   <div class="talk mobile-only">
     <button id="ptt" aria-label="Hold to talk">Hold</button>
+    <button id="hfBtn" class="ghost" aria-pressed="false" title="Hands-free: just talk">Hands-free</button>
     <input id="text" placeholder="Ask or tell ForgeMind…" enterkeyhint="send" autocomplete="off">
   </div>
   <div class="log mobile-only" id="log"></div>
@@ -234,11 +237,20 @@ function card(kind, title, text, opts = {}) {
 }
 const toast = (text, kind = "") => card(kind, text, "", {ttl: 3000});
 
-function speak(text) {
+function speak(text, {queue = false} = {}) {
   if (!("speechSynthesis" in window) || !text) return;
-  speechSynthesis.cancel();
+  if (!queue) speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text); u.rate = 1.05;
   speechSynthesis.speak(u);
+}
+// Instant acknowledgement, spoken the moment a turn ends while the agent works.
+// Only for requests that will take a tool round trip; small talk gets none.
+function ackFor(text) {
+  const t = text.toLowerCase();
+  if (/\b((left|leave) off|resume|compare|report|write it up|what changed)\b/.test(t)) return "One moment.";
+  if (/\b(where|find|seen|locate|look at|what'?s on|on the bench|in view|read the)\b/.test(t)) return "Let me check.";
+  if (/\b(log|measured|set |plan|steps? (are|is)|start|watch|teach|remember|wired|soldered|done with)\b/.test(t)) return "Okay.";
+  return null;
 }
 
 const looks = {}, seeking = {};
@@ -306,7 +318,7 @@ function connect(delay = 500) {
   ws.onmessage = ev => {
     try {
       const m = JSON.parse(ev.data);
-      if (m.type === "hello") ASR = (m.providers || {}).asr || "browser";
+      if (m.type === "hello") { ASR = (m.providers || {}).asr || "browser"; $("hfBtn").hidden = ASR === "browser"; }
       else onPush(m);
     } catch (e) {}
   };
@@ -329,12 +341,14 @@ function addMsg(who, text, trace) {
 }
 async function send(text) {
   text = text.trim(); if (!text) return;
+  const ack = ackFor(text);
+  if (ack) speak(ack);
   addMsg("u", text);
   const pending = document.createElement("div"); pending.className = "msg a muted"; pending.textContent = "…";
   $("log").prepend(pending);
   try {
     const r = await post("/api/chat", {text});
-    pending.remove(); addMsg("a", r.reply, r.trace); speak(r.reply);
+    pending.remove(); addMsg("a", r.reply, r.trace); speak(r.reply, {queue: !!ack});
   } catch (e) { pending.textContent = "Couldn't reach ForgeMind."; }
   refresh();
 }
@@ -386,6 +400,58 @@ function serverTalk(ptt) {
   };
 }
 
+// Hands-free: one /ws/asr session in ENDPOINTING mode; every completed turn is
+// sent like typed text. While the phone is talking it streams silence (the
+// transcriber needs real-time audio) so it never transcribes its own voice;
+// tap Hold to cut it off. Reconnects if the session drops.
+let hf = null;
+function handsFree(on) {
+  const btn = $("hfBtn");
+  if (!on) {
+    if (hf) { hf.stop = true; try { hf.sock.send('{"type":"end"}'); } catch (e) {} hf.close(); hf = null; }
+    btn.classList.remove("on"); btn.setAttribute("aria-pressed", "false");
+    return;
+  }
+  if (ASR === "browser") { toast("Hands-free needs the server transcriber (MODEL_API_KEY)."); return; }
+  btn.classList.add("on"); btn.setAttribute("aria-pressed", "true");
+  const state = hf = {stop: false, sock: null, ctx: null, stream: null};
+  state.close = () => {
+    try { state.sock && state.sock.close(); } catch (e) {}
+    if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+    if (state.ctx) state.ctx.close();
+  };
+  const open = async () => {
+    const sock = state.sock = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/asr?mode=hands_free");
+    sock.binaryType = "arraybuffer";
+    let ready = false;
+    sock.onmessage = ev => {
+      const m = JSON.parse(ev.data);
+      if (m.type === "ready") { ready = true; $("hud").textContent = "listening…"; }
+      else if (m.type === "partial") $("text").value = m.text;
+      else if (m.type === "turn") { $("text").value = ""; send(m.text); }
+      else if (m.type === "error") toast("Speech: " + m.text);
+    };
+    sock.onclose = () => { if (!state.stop) setTimeout(() => state.stop || open(), 1000); };
+    if (!state.stream) {
+      state.stream = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true}});
+      state.ctx = new AudioContext({sampleRate: 16000});
+      await state.ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([PCM_WORKLET], {type: "text/javascript"})));
+      const node = new AudioWorkletNode(state.ctx, "pcm");
+      node.port.onmessage = e => {
+        const s = state.sock;
+        if (!s || s.readyState !== 1) return;
+        const f = e.data, out = new Int16Array(f.length);
+        if (!speechSynthesis.speaking)               // silence while the phone talks
+          for (let i = 0; i < f.length; i++) out[i] = Math.max(-1, Math.min(1, f[i])) * 0x7fff;
+        s.send(out.buffer);
+      };
+      state.ctx.createMediaStreamSource(state.stream).connect(node);
+    }
+  };
+  open().catch(e => { toast("Microphone: " + e.message); handsFree(false); });
+}
+$("hfBtn").onclick = () => handsFree(!hf);
+
 function browserTalk(ptt) {
   const rec = new SR(); rec.lang = navigator.language || "en-US"; rec.interimResults = true;
   let finalText = "";
@@ -405,6 +471,7 @@ function browserTalk(ptt) {
   let stopTalk = null;
   const start = e => {
     e.preventDefault(); if (stopTalk) return;
+    if (speechSynthesis.speaking) { speechSynthesis.cancel(); return; }   // tap to interrupt
     if (ASR === "browser" && !SR) return;
     speechSynthesis && speechSynthesis.cancel();
     ptt.classList.add("live");
