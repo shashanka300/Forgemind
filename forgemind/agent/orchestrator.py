@@ -4,6 +4,7 @@ Muse Wonder (FM_AGENT_MODEL) handles user turns; workers (FM_WORKER_MODEL)
 are used inside tools for reading displays and writing reports.
 """
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -13,6 +14,18 @@ from forgemind.agent.tools import NEEDS_PHRASING, ToolBox, schemas
 from forgemind.providers.openai_compat import image_part
 
 MAX_STEPS = 6
+# A reply that opens like a completed action ("Logged ...", "Started ...") with
+# no tool call this turn is a false confirmation (local Glimmer did this 4/15
+# times in agent-eval). Recall answers ("You measured 3.3 V") don't match.
+ACTION_CLAIM = re.compile(
+    r"^\W*(?:ok(?:ay)?|sure|done|got it)?[\s,.!-]*"
+    r"(?:i(?:'ve| have)? )?(?:logged|started|noted|marked|recorded|saved|added|ended|stopped|"
+    r"set |watching|taught|remembered|deleted|forgot|changed|updated)\b",
+    re.I)
+NUDGE = ("Your last reply said you did something, but you called no tool, so nothing "
+         "happened. If the user asked for an action, call the tool now. If you were only "
+         "answering from memory, reply again without claiming a new action.")
+UNDONE = "Sorry, I didn't actually record that. Could you say it again?"
 HISTORY_TURNS = 8
 
 
@@ -68,10 +81,21 @@ class Agent:
             self._remember("user", text)
             self.ctx.memory.db.log_event("speech", "stated", {"text": text})
             trace, reply = [], None
+            nudged = False
             for _ in range(MAX_STEPS):
                 res = llm.chat(messages, tools=self.schemas, model=llm.model_for("agent"))
                 if not res.tool_calls:
                     reply = (res.content or "").strip()
+                    if not trace and ACTION_CLAIM.match(reply):
+                        self.ctx.memory.db.log_event("guard", "inferred",
+                                                     {"claim": reply[:200], "retried": not nudged})
+                        if not nudged:
+                            nudged = True
+                            messages += [{"role": "assistant", "content": reply},
+                                         {"role": "user", "content": NUDGE}]
+                            reply = None
+                            continue
+                        reply = UNDONE
                     break
                 messages.append({"role": "assistant", "content": res.content or "",
                                  "tool_calls": [{"id": c.id, "type": "function",

@@ -250,3 +250,51 @@ def test_resume_yesterdays_session_states_pending_step(rt):
     assert "Resuming 'voltage divider test', last active 1 day ago" in r["reply"]
     assert "Next up: swap R2 for 22k." in r["reply"]
     assert "output voltage = 3.3 V" in r["reply"]
+
+
+class _Scripted:
+    """Fake model returning queued replies; records what it was sent."""
+    name, supports_vision = "scripted", False
+
+    def __init__(self, replies):
+        self.replies, self.seen = list(replies), []
+
+    def model_for(self, role):
+        return "scripted"
+
+    def chat(self, messages, tools=None, model=None, json_mode=False):
+        from forgemind.providers.base import ChatResult, ToolCall
+        self.seen.append(messages)
+        r = self.replies.pop(0)
+        if isinstance(r, tuple):
+            return ChatResult(content=None, tool_calls=[ToolCall(id="c1", name=r[0], arguments=r[1])])
+        return ChatResult(content=r)
+
+
+def _use(rt, llm):
+    rt.llm = rt.ctx.llm = llm
+    return llm
+
+
+def test_guard_retries_a_false_action_claim_and_the_tool_runs(rt):
+    llm = _use(rt, _Scripted(["Started 'voltage divider test'.",
+                              ("start_session", {"name": "voltage divider test"})]))
+    r = rt.agent.handle("start a session called voltage divider test")
+    assert [t["tool"] for t in r["trace"]] == ["start_session"]
+    assert r["reply"] == "Started session 'voltage divider test'."
+    assert any("called no tool" in (m.get("content") or "") for m in llm.seen[1])   # the nudge
+    assert rt.memory.experiments.active()["name"] == "voltage divider test"
+
+
+def test_guard_never_speaks_a_false_confirmation_twice(rt):
+    _use(rt, _Scripted(["Logged: swap R2 for 22k.", "Okay, logged it."]))
+    r = rt.agent.handle("set R2 to 10k")
+    assert r["trace"] == [] and r["reply"].startswith("Sorry, I didn't actually record that")
+    ev = rt.memory.db.all("SELECT payload FROM events WHERE type='guard'")
+    assert len(ev) == 2
+
+
+def test_guard_leaves_recall_answers_alone(rt):
+    llm = _use(rt, _Scripted(["You measured 3.3 V on the output earlier."]))
+    r = rt.agent.handle("what was the output voltage?")
+    assert r["reply"] == "You measured 3.3 V on the output earlier." and len(llm.seen) == 1
