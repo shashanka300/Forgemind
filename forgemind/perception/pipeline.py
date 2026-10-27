@@ -3,6 +3,11 @@
     static camera : change-gated, fixed zone, left/centre/right regions,
                     presence + hazard signals for the safety watch,
                     "disappeared" when a known object stops being seen
+                    (not while a hand or arm covers where it was)
+    both cameras  : a new object is created only after it is seen in two
+                    processed frames in a row; on the bench camera an object
+                    in a hand can update a known entity but never creates one
+                    (held objects are blurred and half covered by fingers)
     mobile phone  : zone from AprilTags, every frame matched against memory,
                     resolves pending look requests, feeds the live overlay
 """
@@ -25,9 +30,49 @@ STATIC_FORCE_EVERY_S = 15.0
 CHANGE_FRACTION = 0.004
 PIXEL_DELTA = 25
 MISSES_BEFORE_GONE = 3
+# ...and at least this long unseen (an arm can cover things for a few seconds).
+GONE_AFTER_S = 10.0
+# Fraction of an object's box covered by a hand/person box for it to count as
+# held (new detections) or hidden (known objects that weren't detected).
+HELD_OVERLAP = 0.25
+OCCLUDED_OVERLAP = 0.20
+# A candidate new object must reappear within this long to be confirmed.
+CONFIRM_WITHIN_S = 5.0
+CONFIRM_IOU = 0.3
+# Move linking: a same-concept object the bench camera saw go missing within
+# MOVE_LINK_S is matched at a relaxed similarity (match_min_sim - MOVE_RELAX):
+# "it left its spot and one like it appeared over there" is most likely a move.
+MOVE_LINK_S = 120.0
+MOVE_RELAX = 0.15
 MAX_CROP_PX = 448
 # Recent phone frames kept for teaching (several views of one object).
 RECENT_FRAMES = 8
+
+
+def _unit(v):
+    v = np.asarray(v, np.float32)
+    return v / (np.linalg.norm(v) or 1.0)
+
+
+def covered(box, others):
+    """Largest fraction of `box` covered by any box in `others`."""
+    area = max(1e-9, (box[2] - box[0]) * (box[3] - box[1]))
+    best = 0.0
+    for o in others:
+        w = min(box[2], o[2]) - max(box[0], o[0])
+        h = min(box[3], o[3]) - max(box[1], o[1])
+        if w > 0 and h > 0:
+            best = max(best, w * h / area)
+    return best
+
+
+def iou(a, b):
+    w = min(a[2], b[2]) - max(a[0], b[0])
+    h = min(a[3], b[3]) - max(a[1], b[1])
+    if w <= 0 or h <= 0:
+        return 0.0
+    inter = w * h
+    return inter / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter)
 
 
 def region_of(box):
@@ -63,6 +108,7 @@ class Perception:
         self.last_processed = {}     # camera -> ts
         self.last_keyframe = {}      # camera -> ts
         self.misses = {}             # entity id -> consecutive static misses
+        self.pending = {}            # camera -> candidate new objects from the last frame
         self.gone = set()
         self.paused = False
         self.private = False
@@ -141,6 +187,8 @@ class Perception:
 
         out_dets, events, claimed = [], [], set()
         present = False
+        occluders = [d.box for d in dets if d.concept in PRESENCE_CONCEPTS]
+        candidates = []
         for d in sorted(dets, key=lambda d: -d.score):
             item = {"concept": d.concept, "box": [round(b, 4) for b in d.box],
                     "score": round(d.score, 3)}
@@ -156,10 +204,26 @@ class Perception:
                 if keyframe is None and camera == "mobile":
                     # make sure a first sighting/move has a picture to show
                     keyframe = self._save_keyframe(camera, image, ts, force=True)
+                vec = _unit(self.emb.embed_image(self.crop(image, d.box)))
+                eid, _ = self.mem.registry.match(d.concept, vec, camera, zone, region, ts,
+                                                 exclude=claimed)
+                if eid is None:
+                    held = camera == "static" and covered(d.box, occluders) >= HELD_OVERLAP
+                    if not held:
+                        eid = self._moved_from(d.concept, vec, ts, claimed)
+                if eid is None:
+                    if held or (self.s.confirm_new and not self._confirmed(camera, d, vec, ts)):
+                        if not held:
+                            candidates.append({"concept": d.concept, "box": d.box,
+                                               "vec": vec, "ts": ts})
+                        item.update(kind="object", entity_id=None, label=d.concept,
+                                    pending=not held, held=held)
+                        out_dets.append(item)
+                        continue
                 r = self.mem.registry.observe(
                     camera=camera, zone=zone, region=region, concept=d.concept, box=d.box,
-                    score=d.score, crop=self.crop(image, d.box), keyframe=keyframe, ts=ts,
-                    exclude=claimed)
+                    score=d.score, crop=None, keyframe=keyframe, ts=ts,
+                    exclude=claimed, vec=vec, entity_id=eid)
                 claimed.add(r["entity_id"])
                 item.update(entity_id=r["entity_id"], label=r["label"], kind="object")
                 if r["event"]:
@@ -169,12 +233,13 @@ class Perception:
                     self.safety.seen(d.concept, ts)
             out_dets.append(item)
 
+        self.pending[camera] = candidates
         if present and camera == "static":
             self.safety.present(ts)
         if camera == "mobile" and zone == self.s.static_zone:
             self.safety.present(ts)          # carrying the phone at the bench
         if camera == "static" and not self.private:
-            events += self._track_absences(claimed, ts)
+            events += self._track_absences(claimed, ts, occluders)
         if camera == "mobile":
             labels = [i.get("label") or i["concept"] for i in out_dets]
             for look in self.hub.check_looks(zone, labels, claimed):
@@ -192,20 +257,57 @@ class Perception:
         return {"camera": camera, "zone": zone, "detections": out_dets, "events": events,
                 "keyframe": keyframe, "ms": round((time.perf_counter() - t0) * 1000)}
 
-    def _track_absences(self, seen_ids, ts):
-        """Known bench objects the static camera stopped seeing."""
+    def _moved_from(self, concept, vec, ts, claimed):
+        """A same-concept entity that recently went missing from the bench, if similar enough."""
+        missing = [eid for eid, n in self.misses.items() if n > 0 or eid in self.gone]
+        if not missing:
+            return None
+        best, best_sim = None, self.s.match_min_sim - MOVE_RELAX
+        for eid in missing:
+            if eid in claimed:
+                continue
+            e = self.mem.registry.get(eid)
+            if (not e or e["concept"] != concept or not e["proto"]
+                    or ts - (e["last_seen"] or 0) > MOVE_LINK_S):
+                continue
+            from forgemind.memory.db import blob_to_vec
+            sim = float(np.dot(vec, blob_to_vec(e["proto"])))
+            if sim >= best_sim:
+                best, best_sim = eid, sim
+        return best
+
+    def _confirmed(self, camera, d, vec, ts):
+        """Was this unmatched detection also a candidate in the previous frame?"""
+        for c in self.pending.get(camera, []):
+            if c["concept"] != d.concept or ts - c["ts"] > CONFIRM_WITHIN_S:
+                continue
+            same_place = camera == "static" and iou(c["box"], d.box) >= CONFIRM_IOU
+            if same_place or float(np.dot(c["vec"], vec)) >= self.s.match_min_sim:
+                return True
+        return False
+
+    def _track_absences(self, seen_ids, ts, occluders=()):
+        """Known bench objects the static camera stopped seeing.
+
+        A miss doesn't count while a hand/person box covers the object's last
+        position; "gone" needs MISSES_BEFORE_GONE misses and GONE_AFTER_S.
+        """
         events = []
         rows = self.mem.db.all(
-            "SELECT id FROM entities WHERE deleted=0 AND last_camera='static' AND last_zone=?"
-            " AND last_seen > ?", (self.s.static_zone, ts - 3600))
+            "SELECT id, last_box, last_seen FROM entities WHERE deleted=0 AND last_camera='static'"
+            " AND last_zone=? AND last_seen > ?", (self.s.static_zone, ts - 3600))
         for r in rows:
             eid = r["id"]
             if eid in seen_ids:
                 self.misses[eid] = 0
                 self.gone.discard(eid)
                 continue
+            box = [float(v) for v in r["last_box"].split(",")] if r["last_box"] else None
+            if box and covered(box, occluders) >= OCCLUDED_OVERLAP:
+                continue                       # hidden, not gone
             self.misses[eid] = self.misses.get(eid, 0) + 1
-            if self.misses[eid] >= MISSES_BEFORE_GONE and eid not in self.gone:
+            if (self.misses[eid] >= MISSES_BEFORE_GONE and ts - r["last_seen"] >= GONE_AFTER_S
+                    and eid not in self.gone):
                 self.gone.add(eid)
                 self.mem.registry.mark_disappeared(eid, "static", self.s.static_zone, ts)
                 events.append({"type": "disappeared", "entity_id": eid,

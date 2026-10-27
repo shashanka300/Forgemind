@@ -129,6 +129,19 @@ def cmd_calibrate(args):
         print("note: DINO is image-only; text search (where_is by description) still needs clip/pe.")
 
 
+def cmd_replay(args):
+    from forgemind.config import Settings
+    from forgemind.replay import run
+    over = {"token": "off"}
+    if args.concepts:
+        over["concepts"] = [c.strip() for c in args.concepts.split(",") if c.strip()]
+    if args.match is not None:
+        over["match_min_sim"] = args.match
+    s = Settings.from_env(**over)
+    s.data_dir.mkdir(parents=True, exist_ok=True)
+    run(s, args.video, camera=args.camera, fps=args.fps, out_dir=args.out)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="forgemind", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -157,6 +170,14 @@ def main(argv=None):
     p.add_argument("--no-crop", action="store_true", help="photos are already crops")
     p.add_argument("--out", help="JSON report path (default: <data dir>/calibration.json)")
     p.set_defaults(fn=cmd_calibrate)
+    p = sub.add_parser("replay", help="run a recorded video through perception + memory")
+    p.add_argument("video")
+    p.add_argument("--camera", choices=["static", "mobile"], default="static")
+    p.add_argument("--fps", type=float, default=1.0)
+    p.add_argument("--concepts", help="comma-separated, overrides FM_CONCEPTS")
+    p.add_argument("--match", type=float, help="override FM_MATCH_MIN_SIM")
+    p.add_argument("--out", help="output folder (default: <data dir>/replay/<video name>)")
+    p.set_defaults(fn=cmd_replay)
     p = sub.add_parser("check", help="test the configured model API")
     p.set_defaults(fn=cmd_check)
     args = ap.parse_args(argv)

@@ -101,3 +101,59 @@ def test_teach_ignores_old_frames(rt):
                           ts=time.time() - 30)
     out = rt.agent.tools.run("teach_object", {"name": "old key"})
     assert len(out["views"]) == 1          # falls back to the latest frame only
+
+
+def test_new_object_needs_two_frames_when_confirming(rt):
+    rt.settings.confirm_new = True
+    img = scene([("multimeter", .45, .4, .6, .6)])
+    first = rt.perception.process("static", img, ts=1000.0)
+    assert first["events"] == [] and first["detections"][0]["pending"]
+    second = rt.perception.process("static", img, ts=1001.0, force=True)
+    assert events_of(second) == [("appeared", "multimeter")]
+    # a one-frame blip elsewhere never becomes an entity
+    rt.perception.process("static", scene([("multimeter", .45, .4, .6, .6),
+                                           ("hex key", .05, .05, .15, .15)]), ts=1002.0, force=True)
+    rt.perception.process("static", img, ts=1003.0, force=True)
+    assert [e["concept"] for e in rt.memory.registry.list()] == ["multimeter"]
+
+
+def test_held_object_never_creates_entity_on_bench(rt):
+    # yellow "person" block (a hand/arm) covers most of the hex key
+    img = scene([("person", .38, .38, .60, .60), ("hex key", .40, .40, .50, .50)])
+    out = rt.perception.process("static", img, ts=1000.0)
+    held = [d for d in out["detections"] if d["concept"] == "hex key"][0]
+    assert held["held"] and held["entity_id"] is None
+    assert rt.memory.registry.list() == []
+
+
+def test_covered_object_is_not_reported_gone(rt):
+    t = time.time() - 100
+    rt.perception.process("static", scene([("multimeter", .5, .4, .6, .6)]), ts=t)
+    gone = []
+    for i in range(1, 16):          # an arm (person block) covers it for 15 s
+        out = rt.perception.process("static", scene([("person", .45, .35, .7, .7)]),
+                                    ts=t + i, force=True)
+        gone += [e for e in out["events"] if e["type"] == "disappeared"]
+    assert gone == []
+    for i in range(16, 30):         # arm gone, multimeter really missing
+        out = rt.perception.process("static", scene([]), ts=t + i, force=True)
+        gone += [e for e in out["events"] if e["type"] == "disappeared"]
+    assert [g["label"] for g in gone] == ["multimeter"]
+
+
+def test_untaught_object_moved_on_bench_is_linked_not_duplicated(rt, monkeypatch):
+    # The object looks a bit different after the move (below match_min_sim but
+    # above the relaxed move-link threshold): moved, not new + disappeared.
+    from forgemind.perception import pipeline as pl
+    t = time.time() - 100
+    rt.perception.process("static", scene([("multimeter", .05, .4, .2, .6)]), ts=t)
+    eid = rt.memory.registry.list()[0]["id"]
+    rt.perception.process("static", scene([]), ts=t + 2, force=True)      # left its spot
+    real_match = rt.memory.registry.match
+    monkeypatch.setattr(rt.memory.registry, "match",
+                        lambda *a, **k: (None, 0.8))                       # strict match fails
+    out = rt.perception.process("static", scene([("multimeter", .75, .4, .9, .6)]),
+                                ts=t + 4, force=True)
+    monkeypatch.setattr(rt.memory.registry, "match", real_match)
+    assert ("moved", "multimeter") in events_of(out)
+    assert [e["id"] for e in rt.memory.registry.list()] == [eid]

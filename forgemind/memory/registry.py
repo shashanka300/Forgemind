@@ -87,11 +87,18 @@ class Registry:
     # -- writes ---------------------------------------------------------------
 
     def observe(self, *, camera, zone, region, concept, box, score, crop,
-                keyframe=None, ts=None, exclude=(), vec=None):
-        """Record one detection. Returns {entity_id, event, label, sim}."""
+                keyframe=None, ts=None, exclude=(), vec=None, entity_id=None):
+        """Record one detection. Returns {entity_id, event, label, sim}.
+
+        `entity_id` forces the match (the caller already decided, e.g. a move).
+        """
         ts = ts or time.time()
-        vec = _norm(vec if vec is not None else self.emb.embed_image(crop))
-        eid, sim = self.match(concept, vec, camera, zone, region, ts, exclude)
+        vec = _norm(vec if vec is not None else self.emb.embed_image(crop))  # crop unused if vec
+        if entity_id is not None:
+            proto = self.db.one("SELECT proto FROM entities WHERE id=?", (entity_id,))["proto"]
+            eid, sim = entity_id, float(vec @ blob_to_vec(proto)) if proto else 0.0
+        else:
+            eid, sim = self.match(concept, vec, camera, zone, region, ts, exclude)
         event = None
         if eid is None:
             eid = self.db.execute(

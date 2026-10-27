@@ -11,6 +11,8 @@ Where the build stands and what to do next. Update this at the end of each work 
 |---|---|---|
 | Full loop in mock mode (cameras → memory → agent → phone) | Works | 37 tests; phone page loads, chat round trip in browser |
 | Object registry + teach identity (F-OBJ-1..5) | Existed in skeleton; teaching improved | Teach now takes up to 3 views from the last 4 s of phone frames, asks SAM for the named concept if the frame's detections missed it, and says when it fell back to the centre of the view. Tests only (colour-block fixtures) |
+| Replay test (`forgemind replay`) | **Built + run** | Video → real pipeline (gate, SAM 3.1, PE, registry), mock model, no API. Fixed cam (overhead, 70 s): 16 entities / 19 false "disappeared" before the fixes → **9 entities, all real; 1 correct move (LCD); 1 correct disappearance (headset band picked up)**. Handheld walk-through as phone frames: 27 entities in a cluttered room, ~4 duplicates (a steel bottle split in 3, 1-sighting fragments) |
+| Hand-aware perception | **Built** | New objects need 2 frames in a row (`FM_CONFIRM_NEW`); on the bench an object overlapping a hand/person box never creates an entity; a covered object isn't "missing"; "gone" needs 3 misses and 10 s; move linking: a same-concept object the bench saw go missing within 120 s matches at `match_min_sim - 0.15` |
 | Embedder calibration (`forgemind calibrate`) | **Decided: PE** | Real cross-camera test on Assembly101 (see below). `.env` now `FM_EMBEDDER=pe`, teach 0.835, match 0.90 (provisional). Text-search floor per embedder (PE 0.19, CLIP 0.22) |
 | SAM 3.1 via Model API (`FM_SEGMENTER=meta_sam`) | **Works** | Live call on the workbench photo: reply format matches the parser, `c` scores and object ids come back, boxes match local SAM. ~2.3 s per concept (3 in parallel: 3.2 s) |
 | Voice Transcribe relay (`/ws/asr`, phone AudioWorklet → server → Meta) | **Works server-side** | Live: synthetic 16 kHz speech streamed through the relay; exact transcript ("2.5 millimeter", "3.3 volts"), final 0.25 s after release, first partial ~1 s in, connect+handshake ~1.3 s (phone buffers meanwhile). `endStream` shape accepted. Not yet tried with a real phone mic over zrok. The file endpoint (`/asr/transcribe`) returned "Malformed request" to a quick multipart test; unused by the app |
@@ -52,8 +54,10 @@ Where the build stands and what to do next. Update this at the end of each work 
    0.80). No embedder separates untaught look-alikes by appearance (PE needs 0.917 for
    12% recall): identity of look-alikes must come from place/recency or teaching.
    `pick_embedder` now prefers text-capable models unless image-only wins by >0.10 recall.
-   **Still to do:** replay the user's own footage through the pipeline (count entities vs
-   truth) to confirm 0.835/0.90 under their camera and light. User footage so far:
+   **Replay done** (see Status): 0.90 holds stable objects together; lowering it (0.85 →
+   14, 0.80 → 13 entities) barely helps, the fragments came from hands, now handled in code.
+   Missed detections are vocabulary (SAM never matched "usb charger" to the white cube
+   charger; blue pliers missed): tune `FM_CONCEPTS` to the demo objects. User footage so far:
    `sampledata.mp4` (handheld walk-through, narrated: names via Voice Transcribe) and
    `fixed cam.mp4` (overhead; RGB keyboard trips the change gate 58/69 frames, keyboard
    strip should be masked or set to a static colour). Both git-excluded. Folder layout for
@@ -80,12 +84,14 @@ Where the build stands and what to do next. Update this at the end of each work 
      (DINO for identity, PE/CLIP for text search). Near-identical objects (the red
      pliers) can't be told apart from one crop by any of them: identity must lean on
      place and recency for those, and the demo should use visually distinct objects.
-4. **Glimmer server:** download the Q4 GGUF, serve with llama.cpp (`-c 32768`), point
+4. **Ego-Exo4D:** user requested access on Oct 27; credentials expected Oct 28. Then pull a
+   few bike-repair takes (downscaled) for a larger cross-camera test with real tools.
+5. **Glimmer server:** download the Q4 GGUF, serve with llama.cpp (`-c 32768`), point
    `FM_COMPAT_*` at it, confirm tool calls with `forgemind check`.
-5. **Day 3 remaining:** decide embedder from the real crop test; if DINO wins, add a
+6. **Day 3 remaining:** decide embedder from the real crop test; if DINO wins, add a
    second (identity) vector to the registry; recalibrate thresholds; try teach on the
    real phone over zrok. Then Day 4: `where_is` end to end.
-6. **Added from the personal health agent paper** (PRD §7.4, Nature 2026), scheduled in §13:
+7. **Added from the personal health agent paper** (PRD §7.4, Nature 2026), scheduled in §13:
    - F-AGT-8 explicit `missing` / `stale` fields from tools (Day 6, P0)
    - F-OUT-5 deterministic citation check on reports (Day 8, P0)
    - F-EXP-9 user notes memory: goals, obstacles, preferences per turn (Day 8, P1)
