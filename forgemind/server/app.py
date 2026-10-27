@@ -185,6 +185,35 @@ def create_app(rt):
             raise HTTPException(404)
         return {"entity": v, "history": rt.memory.registry.history(eid, 20)}
 
+    @app.get("/api/entities/{eid}/snapshot")
+    def snapshot(eid: int):
+        """The entity's last keyframe, zoomed to the object, with its box drawn."""
+        from io import BytesIO
+
+        from fastapi.responses import Response
+        from PIL import Image, ImageDraw
+        v = rt.memory.registry.view(rt.memory.registry.get(eid))
+        if not v or not v["keyframe"]:
+            raise HTTPException(404)
+        path = rt.memory.keyframes_dir / Path(v["keyframe"]).name
+        if not path.exists():
+            raise HTTPException(404)
+        img = Image.open(path).convert("RGB")
+        W, H = img.size
+        if v["box"]:
+            x0, y0, x1, y1 = v["box"]
+            ImageDraw.Draw(img).rectangle((x0 * W, y0 * H, x1 * W, y1 * H),
+                                          outline=(95, 211, 138), width=max(3, W // 200))
+            cx, cy = (x0 + x1) / 2 * W, (y0 + y1) / 2 * H      # context of ~3x the object
+            half = max((x1 - x0) * W, (y1 - y0) * H, min(W, H) * 0.25) * 1.5
+            img = img.crop((int(max(0, cx - half)), int(max(0, cy - half)),
+                            int(min(W, cx + half)), int(min(H, cy + half))))
+        img.thumbnail((480, 480))
+        buf = BytesIO()
+        img.save(buf, "JPEG", quality=82)
+        return Response(buf.getvalue(), media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
+
     @app.post("/api/entities/{eid}")
     def correct(eid: int, body: EntityIn):
         if not rt.memory.registry.get(eid):

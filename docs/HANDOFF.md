@@ -2,7 +2,7 @@
 
 Where the build stands and what to do next. Update this at the end of each work session.
 
-**Last updated:** Oct 27, 2026 (Day 3 started). **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
+**Last updated:** Oct 27, 2026 (Day 4 started). **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
 **Branch:** `main`. Check `git status -sb` for unpushed commits.
 
 ## Status
@@ -13,6 +13,7 @@ Where the build stands and what to do next. Update this at the end of each work 
 | Object registry + teach identity (F-OBJ-1..5) | Existed in skeleton; teaching improved | Teach now takes up to 3 views from the last 4 s of phone frames, asks SAM for the named concept if the frame's detections missed it, and says when it fell back to the centre of the view. Tests only (colour-block fixtures) |
 | Replay test (`forgemind replay`) | **Built + run** | Video → real pipeline (gate, SAM 3.1, PE, registry), mock model, no API. Fixed cam (overhead, 70 s): 16 entities / 19 false "disappeared" before the fixes → **9 entities, all real; 1 correct move (LCD); 1 correct disappearance (headset band picked up)**. Handheld walk-through as phone frames: 27 entities in a cluttered room, ~4 duplicates (a steel bottle split in 3, 1-sighting fragments) |
 | Hand-aware perception | **Built** | New objects need 2 frames in a row (`FM_CONFIRM_NEW`); on the bench an object overlapping a hand/person box never creates an entity; a covered object isn't "missing"; "gone" needs 3 misses and 10 s; move linking: a same-concept object the bench saw go missing within 120 s matches at `match_min_sim - 0.15` |
+| `where_is` end to end (acceptance #1) | **Built, tested** | Answers zone + camera + time; "last seen" card shows a server-rendered snapshot (`/api/entities/{id}/snapshot`, keyframe zoomed on the object, box drawn); if not in view it **seeks** for 120 s: the first phone frame containing the object pushes a live highlight + "There's your X." (event `found`). Test `tests/test_where_is.py` runs the full bench → shelf → ask → arrive scenario. Verified in the browser pane with SAM 3.1 + PE on the workbench photo (cards, snapshot, highlight). Not yet on the real phone |
 | Embedder calibration (`forgemind calibrate`) | **Decided: PE** | Real cross-camera test on Assembly101 (see below). `.env` now `FM_EMBEDDER=pe`, teach 0.835, match 0.90 (provisional). Text-search floor per embedder (PE 0.19, CLIP 0.22) |
 | SAM 3.1 via Model API (`FM_SEGMENTER=meta_sam`) | **Works** | Live call on the workbench photo: reply format matches the parser, `c` scores and object ids come back, boxes match local SAM. ~2.3 s per concept (3 in parallel: 3.2 s) |
 | Voice Transcribe relay (`/ws/asr`, phone AudioWorklet → server → Meta) | **Works server-side** | Live: synthetic 16 kHz speech streamed through the relay; exact transcript ("2.5 millimeter", "3.3 volts"), final 0.25 s after release, first partial ~1 s in, connect+handshake ~1.3 s (phone buffers meanwhile). `endStream` shape accepted. Not yet tried with a real phone mic over zrok. The file endpoint (`/asr/transcribe`) returned "Malformed request" to a quick multipart test; unused by the app |
@@ -144,6 +145,15 @@ Voice Transcribe $0.18 per audio hour. Bulk work (evaluation, simulated users,
 calibration) runs on local models: SAM 3.1, Glimmer, embedders.
 
 ## Gotchas
+
+- New objects need a second sighting within 5 s (`CONFIRM_WITHIN_S`); posting test frames
+  by hand more slowly than that never confirms anything. The change gate also skips
+  identical frames: vary the frame or wait 15 s.
+- Phone frames with no AprilTag in view have zone None; the registry keeps the object's
+  last known zone then (it used to "move" everything to nowhere).
+- Keyframes: the bench camera saves one per processed frame (up to 1/s) and nothing deletes
+  them yet. Fine for the demo; add a janitor (keep only referenced ones) before long runs.
+- Not built from F-UI-3: an arrow toward an object that is in the zone but off-screen.
 
 - `.env` holds the real `MODEL_API_KEY`; `Settings.from_env` loads it, so test fixtures
   must override `meta_api_key=""` (conftest does). A test once reached the real API.

@@ -271,6 +271,11 @@ class Perception:
             events += self._track_absences(claimed, ts, occluders)
         if camera == "mobile":
             labels = [i.get("label") or i["concept"] for i in out_dets]
+            boxes = {i["entity_id"]: i["box"] for i in out_dets if i.get("entity_id")}
+            for f in self.hub.check_seeks(boxes, now=ts):
+                self.mem.db.log_event("found", "observed", {"label": f["label"]}, camera="mobile",
+                                      zone=zone, entity_id=f["entity_id"], ts=ts)
+                events.append({"type": "found", "entity_id": f["entity_id"], "label": f["label"]})
             for look in self.hub.check_looks(zone, labels, claimed):
                 self.mem.db.log_event("look_done", "observed", {"target": look["target"]},
                                       camera="mobile", zone=zone, ts=ts)

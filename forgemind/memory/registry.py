@@ -107,6 +107,10 @@ class Registry:
             prev, event = None, "appeared"
         else:
             prev = self.db.one("SELECT * FROM entities WHERE id=?", (eid,))
+            if zone is None:
+                # The phone saw it but doesn't know where it is (no tag seen yet):
+                # keep the last known zone rather than moving it to "nowhere".
+                zone = prev["last_zone"]
             if prev["last_zone"] != zone:
                 event = "moved"
             elif camera == "static" and prev["last_region"] != region:
@@ -220,6 +224,7 @@ class Registry:
             "ago": fmt_ago(now - e["last_seen"]) if e["last_seen"] else "never",
             "confidence": conf, "stale": conf < self.s.stale_confidence,
             "keyframe": f"/keyframes/{e['last_keyframe']}" if e["last_keyframe"] else None,
+            "snapshot": f"/api/entities/{e['id']}/snapshot" if e["last_keyframe"] else None,
             "box": box, "sightings": e["sightings"],
         }
 

@@ -241,7 +241,7 @@ function speak(text) {
   speechSynthesis.speak(u);
 }
 
-const looks = {};
+const looks = {}, seeking = {};
 function onPush(m) {
   if (m.type === "alert") {
     card("alert", m.severity === "critical" ? "Danger" : "Heads up", m.message);
@@ -256,10 +256,22 @@ function onPush(m) {
   } else if (m.type === "capture_request" && ROLE === "mobile") {
     captureCard(m);
   } else if (m.type === "highlight") {
-    highlight = {id: m.entity_id, until: performance.now() + 8000}; draw();
+    highlight = {id: m.entity_id, until: performance.now() + (m.found ? 12000 : 8000)};
+    if (m.found) {
+      seeking[m.entity_id] && seeking[m.entity_id].remove(); delete seeking[m.entity_id];
+      navigator.vibrate && navigator.vibrate(120);
+      if (!lastDets.some(d => d.entity_id === m.entity_id)) lastDets = lastDets.concat([{box: m.box, entity_id: m.entity_id, label: m.label, kind: "object"}]);
+    }
+    draw();
   } else if (m.type === "last_seen") {
     const e = m.entity;
-    card("", e.label, `Last seen ${e.zone ? "on the " + e.zone : "somewhere"} · ${e.ago} · ${Math.round(e.confidence * 100)}%`, {img: e.keyframe, ttl: 20000});
+    const who = {static: "bench camera", mobile: "your phone", user: "you"}[e.camera] || e.camera;
+    card("", e.label, `Last seen ${e.zone ? "on the " + e.zone : "somewhere"} by the ${who} · ${e.ago} · ${Math.round(e.confidence * 100)}%`,
+         {img: e.snapshot || e.keyframe, ttl: 30000});
+  } else if (m.type === "seeking" && ROLE === "mobile") {
+    seeking[m.entity_id] && seeking[m.entity_id].remove();
+    seeking[m.entity_id] = card("look", "Looking for: " + m.label, "Point the phone around; I'll highlight it when I see it.",
+                                {ttl: (m.ttl || 120) * 1000});
   } else if (m.type === "report") {
     card("", "Report ready", m.name, {html: `<a style="color:var(--amber)" href="${esc(m.url)}" target="_blank">Open report</a>`});
   } else if (m.type === "say") {

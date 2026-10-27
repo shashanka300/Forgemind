@@ -188,9 +188,15 @@ class ToolBox:
         else:
             self.ctx.hub.push({"type": "last_seen", "entity": top})
             summary = self.mem.registry.describe(top)
+            if top["last_seen"]:
+                self.ctx.hub.seek(top["id"], top["label"])
+                where = f"the {top['zone']}" if top["zone"] else "there"
+                summary += (f" When you get to {where}, point the phone around and"
+                            " I'll highlight it.")
             if top["stale"]:
-                summary += " I can ask you to check, if you like."
+                summary += " It may have moved since, so I can ask you to check."
         return {"found": True, "results": hits, "in_view": bool(in_view), "summary": summary,
+                "seeking": not in_view and bool(top["last_seen"]),
                 "history": self.mem.registry.history(top["id"], 5)}
 
     def _in_mobile_view(self, eid):

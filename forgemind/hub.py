@@ -5,12 +5,16 @@
                        perception pipeline when that zone/object is seen.
                        A robot base would take this request instead.
 * request_capture()  - ask the phone for a high-res close-up and wait for it
+* seek()             - "where is X?" keeps looking: the first phone frame that
+                       contains X gets it highlighted live
 """
 import asyncio
 import collections
 import itertools
 import threading
 import time
+
+SEEK_TTL_S = 120.0
 
 
 class Hub:
@@ -20,6 +24,7 @@ class Hub:
         self.outbox = collections.deque(maxlen=100)    # also read by tests / polling
         self.looks = {}
         self.captures = {}
+        self.seeks = {}              # entity id -> {"label", "until"}
         self._ids = itertools.count(1)
         self._lock = threading.Lock()
 
@@ -68,6 +73,30 @@ class Hub:
                 done.append(look)
                 self.push({"type": "look_done", "id": look["id"], "target": look["target"]})
         return done
+
+    def seek(self, entity_id, label, ttl=SEEK_TTL_S):
+        """Highlight `entity_id` on the phone as soon as a phone frame contains it."""
+        with self._lock:
+            self.seeks[entity_id] = {"label": label, "until": time.time() + ttl}
+        self.push({"type": "seeking", "entity_id": entity_id, "label": label, "ttl": ttl})
+
+    def check_seeks(self, boxes_by_entity, now=None):
+        """Called per phone frame with {entity_id: box}; returns the entities found."""
+        now = now or time.time()
+        found = []
+        with self._lock:
+            for eid in list(self.seeks):
+                s = self.seeks[eid]
+                if now > s["until"]:
+                    del self.seeks[eid]
+                elif eid in boxes_by_entity:
+                    del self.seeks[eid]
+                    found.append({"entity_id": eid, "label": s["label"],
+                                  "box": boxes_by_entity[eid]})
+        for f in found:
+            self.push({"type": "highlight", **f, "found": True})
+            self.say(f"There's your {f['label']}.")
+        return found
 
     def dismiss_look(self, lid):
         if lid in self.looks:
