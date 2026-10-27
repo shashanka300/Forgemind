@@ -9,117 +9,137 @@ is unsafe.
 > Today **you are the robot's body**: when the agent needs to see something it asks you to
 > point the phone there. The same requests can drive a robot later.
 
-Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026). Full spec:
-[`docs/PRD.md`](docs/PRD.md). Current state and next steps: [`docs/HANDOFF.md`](docs/HANDOFF.md). Plugging in Meta's models: [`docs/META_INTEGRATION.md`](docs/META_INTEGRATION.md).
+Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), indie track,
+theme *Push the Frontier*.
 
-## Status
-
-The whole loop runs **without any Meta API access** (mock model + CLIP-grid detector):
-cameras → perception → memory → agent tools → phone UI with voice, overlays and alerts.
-Adding keys is a `.env` change, then `forgemind check`.
-
-**Where the models run** (details in [`docs/PRD.md`](docs/PRD.md) §7.3): anything that
-runs on every frame, or that the Model API doesn't offer, runs on the local GPU
-workstation (RTX 5090). Reasoning and speech recognition go to the Meta Model API.
-
-| Meta Model API | Local GPU |
+| Doc | What's in it |
 |---|---|
-| Muse Spark 1.3 (default agent, workers) and Muse Wonder (hard turns) | SAM 3.1 open weights: continuous segmentation + tracking |
-| Muse Voice Transcribe: streaming speech-to-text | Embeddings: CLIP today, Perception Encoder if it wins the crop test |
-| SAM 3.1: on-demand checks only, never per frame | Muse Glimmer 30B: fallback agent if the API is unavailable |
-| | Text-to-speech: browser today, Kokoro optional |
+| [`docs/EVAL.md`](docs/EVAL.md) | Scorecard: the six acceptance checks, agent accuracy and latency, perception speed, identity precision, cost |
+| [`docs/DEMO.md`](docs/DEMO.md) | Demo script, setup checklist and shot list |
+| [`docs/PRD.md`](docs/PRD.md) | Product spec, model split (§7.3), lessons from Google's personal health agent paper (§7.4) |
+| [`docs/META_INTEGRATION.md`](docs/META_INTEGRATION.md) | Each Meta model: setup, prices, status |
+| [`docs/HANDOFF.md`](docs/HANDOFF.md) | Build log, blockers, next steps |
 
-Modal-hosted SAM (`deploy/modal_sam.py`) is a fallback if the workstation is unavailable.
+## What it does
 
-## Quick start
+- **Where is it?** "Where's my 2.5 mm hex key?" → "Last seen on the shelf by your phone, 20
+  minutes ago." Walk there and the phone highlights it the moment it's in view. If memory
+  is stale it asks you to look, and remembers when something wasn't there.
+- **Teach your things.** "This is my soldering iron": a few views from the phone become a
+  personal identity, recognised by both cameras.
+- **Work continuity.** Sessions with planned steps, settings and measurements; "let's
+  continue yesterday's divider test" → what's done and what's next.
+- **Read instruments.** "Read the multimeter" → a close-up photo, read by Muse Spark's
+  vision, logged as an instrument reading. It refuses OL, blank or ambiguous displays.
+- **Safety watch.** The iron on the bench with nobody there → an alert on your phone, with
+  where you are.
+- **Reports.** "Write it up" → a report where every fact cites the memory event it came
+  from; numbers that aren't in the record are removed, missing values are flagged.
+- **Hands-free voice.** Just talk; an instant "Let me check." while the agent works.
 
-```bash
-cd Forgemind
-uv venv --python 3.12 && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-uv pip install -e ".[vision,dev]"
-cp .env.example .env
-pytest -q                       # no downloads, no network
-forgemind serve --zrok          # prints the phone link (HTTPS, needed for the camera)
+## How it works
+
+```mermaid
+flowchart LR
+  subgraph Cameras
+    B[Bench camera<br/>USB webcam] -->|1 fps, change-gated| P
+    PH[Phone camera + mic<br/>browser, zrok HTTPS] -->|frames| P
+  end
+  subgraph Local["Local GPU (RTX 5090)"]
+    P[Perception<br/>SAM 3.1 batched concepts<br/>AprilTag zones<br/>hand-aware] --> M
+    E[Perception Encoder<br/>crop embeddings] --- M
+    M[(World memory<br/>SQLite events + Qdrant Edge<br/>objects, sightings, sessions,<br/>measurements, notes)]
+    S[Safety watch] --- M
+  end
+  subgraph Meta["Meta Model API"]
+    SP[Muse Spark<br/>agent + vision + reports]
+    VT[Muse Voice Transcribe<br/>streaming STT]
+    SA[SAM 3.1 API<br/>on demand]
+  end
+  PH -->|speech| VT -->|turns| A
+  M -->|situation summary| A[Agent<br/>validated tools] <--> SP
+  A -->|highlight, look requests,<br/>close-ups, alerts, speech| PH
+  S -->|alerts| PH
 ```
 
-- **Phone (carried):** open the printed `https://…/?t=…` link, tap *Start camera*, hold
-  *Hold* to talk (Chrome on Android has the best speech recognition).
-- **Bench camera, option A (USB webcam on the computer):**
-  `forgemind static-cam --device 0 --token <t value>`
-- **Bench camera, option B (old phone):** open the same link with `&role=static`, fix it
-  over the bench, keep it plugged in.
-- **Zones:** `forgemind tags` writes `zone-tags.png`; print it and stick each tag in its
-  zone (bench, shelf, drawer…). The phone knows where it is from the last tag it saw.
+**Model split** (PRD §7.3): anything that runs on every frame, or that the API doesn't
+offer, runs on the local GPU (SAM 3.1, Perception Encoder). Reasoning, display reading,
+reports and speech recognition use the Meta Model API. Meta models throughout: Muse Spark,
+Muse Voice Transcribe, SAM 3.1 (open weights locally, API on demand), Perception Encoder,
+and Muse Glimmer tested as a local fallback.
 
-zrok works exactly as in the gallery app (`zrok enable <account token>` once). On the same
-Wi-Fi without zrok the page loads, but browsers block the live camera over plain HTTP.
+**Design rules.** Memory is written on change, never every frame. The agent sees a compact
+situation summary, not raw streams. The model proposes, the app validates. Every fact has
+provenance (which camera, said by you, read from an instrument, inferred). Tools report
+what is missing or stale instead of trusting the model to notice. People are only
+"present", never stored as identities; pause and private mode are on the phone.
 
-## Things to say (mock mode understands these phrasings)
+## Quick start (Windows, RTX 50-series)
 
-| Say | Tool |
+```bash
+uv venv --python 3.12
+.venv\Scripts\activate
+uv pip install -e ".[vision,dev]"
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+uv pip install -e ".[local]"          # SAM 3 (gated: request facebook/sam3.1 on Hugging Face) + PE
+hf auth login
+copy .env.example .env                # then set MODEL_API_KEY
+pytest -q                             # no downloads, no network
+forgemind check                       # the Model API answers and returns tool calls
+forgemind serve --zrok                # prints the phone link (HTTPS, needed for camera + mic)
+```
+
+Without a key everything still runs on stand-ins (mock model, CLIP-tile detector).
+
+- **Phone:** open the printed `https://…/?t=…` link, tap *Start camera*, then *Hands-free*
+  (or hold *Hold* to talk). *Teach object* names the thing in front of the camera.
+- **Bench camera:** `forgemind static-cam --device 0 --token <t>` (a USB webcam), or an old
+  phone with `&role=static`. Point it down at the bench; `forgemind bench-region <video>
+  --write` masks the keyboard/laptop area.
+- **Zones:** `forgemind tags` writes `zone-tags.png`; stick one tag in each zone.
+- **Teach** your soldering iron as "soldering iron" and your multimeter: SAM 3.1 doesn't
+  detect irons by name, and the safety watch matches the taught name.
+
+## Commands
+
+| Command | Does |
 |---|---|
-| "Start a session called voltage divider" | `start_session` |
-| "The steps are: wire the divider; measure output; swap R2" | `plan_steps` |
-| "Log wire the divider" / "just checking, the probe" | `log_step` |
-| "Set R2 to 10k" | `set_config` |
-| "I measured output voltage is 3.3 V" | `log_measurement` |
-| "Read the multimeter display" | `read_closeup` (needs a vision model to read digits) |
-| "Where is the multimeter?" | `where_is` |
-| "This is my 2.5 mm hex key" (or the *Teach object* button) | `teach_object` |
-| "Look at the drawer" | `go_look_at` |
-| "What's on the bench?" | `inspect_scene` |
-| "Watch the soldering iron" | `watch_bench` |
-| "Where did we leave off?" / "What changed?" / "Write it up" | `resume_session` / `compare_sessions` / `generate_report` |
-
-With `FM_LLM_PROVIDER=meta` you can say anything; the model chooses the tools.
+| `forgemind serve [--zrok] [--mock]` | App server + phone page |
+| `forgemind static-cam --device 0\|url\|file.mp4 [--loop]` | Bench camera client (files replay at real speed) |
+| `forgemind check` | Model API smoke test: models, tool call |
+| `forgemind agent-eval [--frames] [--model …]` | 15 scripted turns against the real model: tools, latency, cost |
+| `forgemind replay video.mp4 --camera static\|mobile` | Recorded video through perception + memory; entity contact sheet |
+| `forgemind calibrate photos/` | Compare embedders on your objects; recommends thresholds |
+| `forgemind concepts frames… --phrases "a,b"` | Compare SAM phrasings on sample frames |
+| `forgemind bench-region video [--roi] [--write]` | Suggest bench crop/masks |
+| `forgemind spend` | API spend against the budget cap |
+| `forgemind tags` | Printable AprilTag zone sheet |
 
 ## Layout
 
 ```
 forgemind/
-  config.py              settings from .env
-  runtime.py             wires everything together
-  hub.py                 phone push channel + look/capture requests ("the body")
-  providers/             model slots: mock, Meta/OpenAI-compatible, CLIP, CLIP-grid, local/hosted/API SAM
-  memory/                SQLite event store, Qdrant Edge visual index, object registry, experiments
-  perception/            frame pipeline, AprilTag zones, safety watch
-  agent/                 tools (pydantic-validated), prompts, orchestrator loop
-  reports.py             experiment report with [E#] provenance
-  server/                FastAPI app, phone page, zrok tunnel
-  cameras/static_cam.py  USB/RTSP webcam client
-tests/                   memory, agent (incl. fake Meta endpoint), server + WebSocket
-deploy/                  modal_sam.py (fallback hosted SAM 3.1), Dockerfile + compose for the app server
+  config.py, runtime.py   settings; wiring
+  hub.py                  phone push channel, look / capture / seek requests ("the body")
+  providers/              model slots (Meta API + metering, compat/Glimmer, mock), SAM local/API/Modal,
+                          CLIP / Perception Encoder, fallback, budget ledger
+  perception/             frame pipeline (hand-aware, move linking), zones, bench region, safety
+  memory/                 SQLite events, Qdrant Edge, object registry, experiments, user notes
+  agent/                  tools (validated), prompts, orchestrator (+ false-claim guard)
+  server/                 FastAPI app, phone page, Voice Transcribe relay, zrok
+  reports.py              reports with [E#] provenance + citation check
+  agent_eval.py, replay.py, calibrate.py, concepts.py   evaluation tools
+tests/                    80+ tests: memory, perception, agent, where_is, safety, reports, notes, ASR, budget
+deploy/                   Modal SAM fallback, Dockerfile + compose
 ```
 
-## What came from the gallery app (Multi_meta)
+## Known limits
 
-- CLIP ViT-B/32 image + text encoders via FastEmbed/ONNX, same pinned versions, so the
-  0.80 "teach a name" threshold carries over (`FM_TEACH_MIN_SIM`).
-- Qdrant Edge as the visual store (`memory/vectors.py`), now holding object crops with
-  camera, zone, entity and time.
-- "Teach a name" becomes **teach an object identity**, matched across both cameras.
-- Live viewfinder → phone camera stream; shutter → `read_closeup` high-res capture.
-- Access token → 30-day HttpOnly cookie, and the zrok HTTPS share.
-
-## Design rules (from the PRD)
-
-1. Memory is written on change (appeared / moved / disappeared) plus a one-per-minute
-   heartbeat, never every frame.
-2. The agent sees a compact situation summary, not raw streams.
-3. The model proposes, the app validates (`ToolBox.run`).
-4. Every fact has provenance: observed (which camera), stated, instrument, inferred.
-5. Robot-ready interfaces: `go_look_at`, `highlight` and `read_closeup` go through the Hub.
-6. People are only "present"; they are never stored as identities. Pause and private
-   mode are on the phone.
-
-## Known limits of the skeleton
-
-- `clip_grid` boxes are tile-sized and it confuses look-alike tools; it's there to wire
-  things up until SAM 3.1 runs locally (`FM_SEGMENTER=sam3`). It's ~1 s per frame on a CPU.
-- Built but only tested against fake endpoints until keys arrive: the SAM 3.1 API adapter
-  (`meta_sam`), Voice Transcribe streaming, and automatic fallback to Muse Glimmer.
-- Local SAM 3 imports on Windows but hasn't run yet (needs `facebook/sam3` access); the
-  Perception Encoder embedder runs, but thresholds aren't recalibrated for it. See
-  [`docs/META_INTEGRATION.md`](docs/META_INTEGRATION.md).
-- The mock model only matches fixed phrasings and cannot read displays.
-- Disappearance is only inferred by the bench camera (the phone sees too little at once).
+- Not yet run live on the real bench and phone (the scorecard's acceptance checks pass in
+  automated tests and against the real Meta API).
+- SAM 3.1 never answers to "soldering iron"; teach the iron. "multimeter" also fires on
+  digital stopwatches; teach the meter.
+- Identical-looking untaught objects (two identical tracks) can't be told apart by
+  appearance; place and recency carry their identity.
+- English only. Phone hands-free sends silence while it speaks, so interrupt by tapping.
+- Not a safety system: alerts are assistive.

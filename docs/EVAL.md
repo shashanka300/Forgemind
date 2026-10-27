@@ -1,0 +1,56 @@
+# ForgeMind evaluation scorecard
+
+Measured on Oct 27–28, 2026 on the development machine (RTX 5090 32 GB, Windows 11),
+Meta Model API from India. Every number below comes from a run in this repo; the last
+column says how to reproduce it. PRD §14 lists the acceptance checks, §15 the targets.
+
+## Acceptance checks (PRD §14)
+
+| # | Check | Status | Evidence |
+|---|---|---|---|
+| 1 | Taught object moved bench → shelf is found with the right zone/camera and highlighted live when the phone arrives | Pass (automated) | `tests/test_where_is.py` (full bench → shelf → ask → arrive scenario); browser check with SAM 3.1 + PE on a real photo |
+| 2 | A previous day's session resumes with the correct pending step | Pass (automated + real Spark) | `tests/test_agent.py::test_resume_yesterdays_session_states_pending_step`; agent-eval turn "let's continue the soldering headers job from yesterday" → "last active 1 day ago … Next up: solder the other pins" |
+| 3 | A meter reading from a close-up is logged with source "instrument (read from display)" | Pass (real Spark vision) | 7 photos through `read_closeup`: ".0060" → 0.006 V logged as `instrument` with the raw display text; OL / blank / no display / stopwatch → no value; two meters → refused as ambiguous |
+| 4 | Iron left unattended with the user in another zone triggers a phone alert in time | Pass (automated) | `tests/test_day7.py`: alert at the unattended threshold (target ≤ 10 s late), names the phone's zone |
+| 5 | Stale memory → `go_look_at`; memory updates after the user looks | Pass (automated) | `tests/test_day7.py`: both branches (found → highlight; not there → `not_found` + spoken) |
+| 6 | Report facts are traceable to logged events; missing values flagged | Pass (real Spark) | Citation check on a Spark-written summary: 0 problems; it states the missing input voltage; invented numbers are sent back once, then removed (`tests/test_reports.py`) |
+
+Live runs on the real bench and phone are still to do (needs the user's setup).
+
+## Agent (Muse Spark via Meta Model API)
+
+| Metric | Value | Reproduce |
+|---|---|---|
+| Tool choice, 15 scripted turns | **15/15** (14/14 before the resume turn was added) | `forgemind agent-eval` |
+| Median / max time per turn | **2.1–2.5 s / 3.6–4.9 s** (from 8.2 s / 12.9 s at the start of Day 5) | same |
+| Cost per 15-turn run | **$0.03–0.07** | same; `forgemind spend` |
+| Model calls per turn | 1.07 (tool summaries are spoken directly) | same |
+| False action claims | 0 with Spark; local Glimmer 4/15 → guarded (retry, then "Sorry, I didn't actually record that") | `tests/test_agent.py::test_guard_*` |
+| Spoken-answer latency | instant acknowledgement on the phone (~0.3 s); answer ≈ 0.25 s transcript + ~2.2 s agent | Voice Transcribe relay test; agent-eval |
+
+Local alternative tested: Muse Glimmer 30B Q4 on the 5090 (llama.cpp, ~80 tok/s): 9/15 tools,
+median 4.5 s, invented actions → not used for live turns.
+
+## Perception and memory
+
+| Metric | Value | Reproduce |
+|---|---|---|
+| SAM 3.1 per bench frame, 14 concepts | **~170 ms** batched (575 ms prompt-by-prompt; identical detections) | `Sam3Segmenter` |
+| Full bench-frame pipeline | **~270 ms** (from ~780 ms) | `forgemind replay "fixed cam.mp4"` |
+| Fixed-cam replay (70 s, overhead, hands moving) | **9–10 real objects, 0 junk, 1 correct move, 0 false disappearances** (before hand-aware logic: 16 objects, 19 false disappearances) | same |
+| Cross-camera identity, Assembly101 (5 fixed cameras, 9 hand-matched parts incl. two identical tracks) | **PE: top-1 94%, 89% recall at 90% precision (threshold 0.835)**; CLIP 61%, DINOv2 6%, DINOv3 94% but cannot search by text and worst on look-alikes | `forgemind calibrate <folder> --embedders clip,pe,dinov2,dinov3` |
+| Concept phrasing | "soldering iron" never detected by SAM 3.1 (0/6 clear photos) → taught identity; "multimeter" fires on stopwatches → teach the meter | `forgemind concepts …` |
+| Display reading (Spark vision) | 7/7 correct (1 value, 6 correctly refused) | read_closeup test |
+
+## Speech
+
+| Metric | Value |
+|---|---|
+| Push-to-talk final transcript after release | ~0.25 s |
+| Hands-free (ENDPOINTING) turn after the user stops | ~0.4–1 s |
+| Transcript quality | exact on test speech, numbers formatted ("2.5 millimeter", "3.3 volts") |
+
+## Cost
+
+Ledger: `forgemind spend` (one ledger per machine, hard stop at `FM_BUDGET_USD=140`).
+Total for building and evaluating through Day 9: about **$1** of the $150 budget.
