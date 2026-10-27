@@ -113,7 +113,7 @@ def cmd_check(args):
 
 
 def cmd_calibrate(args):
-    from forgemind.calibrate import run
+    from forgemind.calibrate import pick_embedder, run
     from forgemind.config import Settings
     s = Settings.from_env()
     if args.segmenter:
@@ -122,8 +122,7 @@ def cmd_calibrate(args):
     s.data_dir.mkdir(parents=True, exist_ok=True)
     rep = run(s, args.photos, embedders=args.embedders.split(","), target=args.precision,
               crop=not args.no_crop, out=out)
-    best = max(rep["results"], key=lambda r: ((r["identification"]["at_target"] or {})
-                                              .get("recall", 0), r["auc"] or 0))
+    best = pick_embedder(rep["results"])
     print(f"\nbest: {best['embedder']} -> FM_EMBEDDER={best['embedder']} "
           + " ".join(f"{k}={v}" for k, v in best["recommend"].items()))
     if best["embedder"] in ("dinov2", "dinov3"):

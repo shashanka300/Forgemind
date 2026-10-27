@@ -61,7 +61,9 @@ def jpeg(img):
 
 @pytest.fixture
 def settings(tmp_path):
-    return Settings.from_env(data_dir=tmp_path / "data", embedder="hash",
+    # Never use the developer's real key or providers from .env in tests.
+    return Settings.from_env(data_dir=tmp_path / "data", embedder="hash", meta_api_key="",
+                             fallback_provider="", sam_checkpoint="sam3.1",
                              vector_backend="numpy", llm_provider="mock", segmenter="none",
                              token="secret-token", send_frames=False,
                              concepts=["soldering iron", "multimeter", "hex key", "person",

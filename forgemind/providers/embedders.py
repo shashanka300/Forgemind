@@ -28,6 +28,8 @@ def _unit(v):
 class ClipEmbedder:
     name = "clip"
     dim = 512
+    # Text->image cosine below this is noise for `where_is` by description.
+    text_min_sim = 0.22
 
     def __init__(self, cache_dir=None, threads=None):
         self.cache_dir = cache_dir
@@ -69,6 +71,9 @@ class ClipEmbedder:
 class PerceptionEncoderEmbedder:
     name = "pe"
     dim = 1024
+    # PE's text->image cosines run lower than CLIP's (Assembly101 crops:
+    # matching ~0.22, other ~0.17); 0.19 keeps most true matches.
+    text_min_sim = 0.19
     MODEL = "PE-Core-L-14-336"
 
     def __init__(self, model=None, device=None, cache_dir=None):

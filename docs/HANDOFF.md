@@ -11,7 +11,7 @@ Where the build stands and what to do next. Update this at the end of each work 
 |---|---|---|
 | Full loop in mock mode (cameras → memory → agent → phone) | Works | 37 tests; phone page loads, chat round trip in browser |
 | Object registry + teach identity (F-OBJ-1..5) | Existed in skeleton; teaching improved | Teach now takes up to 3 views from the last 4 s of phone frames, asks SAM for the named concept if the frame's detections missed it, and says when it fell back to the centre of the view. Tests only (colour-block fixtures) |
-| Embedder calibration (`forgemind calibrate`) | Built | Synthetic smoke set only (see below). Real answer needs the user's photos |
+| Embedder calibration (`forgemind calibrate`) | **Decided: PE** | Real cross-camera test on Assembly101 (see below). `.env` now `FM_EMBEDDER=pe`, teach 0.835, match 0.90 (provisional). Text-search floor per embedder (PE 0.19, CLIP 0.22) |
 | SAM 3.1 via Model API (`FM_SEGMENTER=meta_sam`) | **Works** | Live call on the workbench photo: reply format matches the parser, `c` scores and object ids come back, boxes match local SAM. ~2.3 s per concept (3 in parallel: 3.2 s) |
 | Voice Transcribe relay (`/ws/asr`, phone AudioWorklet → server → Meta) | **Works server-side** | Live: synthetic 16 kHz speech streamed through the relay; exact transcript ("2.5 millimeter", "3.3 volts"), final 0.25 s after release, first partial ~1 s in, connect+handshake ~1.3 s (phone buffers meanwhile). `endStream` shape accepted. Not yet tried with a real phone mic over zrok. The file endpoint (`/asr/transcribe`) returned "Malformed request" to a quick multipart test; unused by the app |
 | LLM fallback to Glimmer (`FM_FALLBACK_PROVIDER=compat`) | Built | Stub models only; no Glimmer server yet |
@@ -36,11 +36,28 @@ Where the build stands and what to do next. Update this at the end of each work 
    AudioWorklet at 16 kHz on the phone's browser). Latency budget so far: Spark ~2.5 s per
    call, so a one-tool turn (2 calls) is ~5 s, above the 4 s spoken-answer target. Options:
    trim the system prompt, use the reply text from the tool-call turn, stream the reply.
-3. **Embedder crop test (Day 3), waiting on the user's video** (the user records a walk-through
-   instead of photos; we extract the per-object folders ourselves: SAM concept detection
-   on sampled frames, SAM 3.1 video tracker for identity, Whisper on the audio for names,
-   close/sharp views = "phone", small/far = "bench", then a contact-sheet review to merge
-   or drop tracks). Folder layout the extraction must produce:
+3. **Embedder decision (Day 3): done on public data.** Assembly101 sample, one recording
+   (`nusar-2021_action_both_9011-a01…`, CC BY-NC 4.0, internal testing only; downloaded to
+   the session scratchpad, not the repo). At t=139.5 s, 9 parts hand-matched across 5 fixed
+   cameras (C10115 + C10404 overhead = "bench", C10095/C10119/C10390 = "phone"); 45 crops,
+   18 bench queries. Includes a true look-alike pair (two identical tracks).
+   | embedder | top-1 | recall @ P≥0.9 (thr) | look-alike AUC | text search |
+   |---|---|---|---|---|
+   | clip | 0.83 | 0.61 (0.902) | 0.68 | yes |
+   | **pe** | **0.94** | **0.89 (0.835)** | **0.78** | yes |
+   | dinov2 | 0.83 | 0.06 (0.841) | 0.60 | no |
+   | dinov3 | 0.94 | 0.94 (0.817) | 0.59 | no |
+   Synthetic smoke test (same pixels) had favoured DINOv3; real cross-camera views do
+   not. CLIP at the old 0.80 would accept almost anything (different objects average
+   0.80). No embedder separates untaught look-alikes by appearance (PE needs 0.917 for
+   12% recall): identity of look-alikes must come from place/recency or teaching.
+   `pick_embedder` now prefers text-capable models unless image-only wins by >0.10 recall.
+   **Still to do:** replay the user's own footage through the pipeline (count entities vs
+   truth) to confirm 0.835/0.90 under their camera and light. User footage so far:
+   `sampledata.mp4` (handheld walk-through, narrated: names via Voice Transcribe) and
+   `fixed cam.mp4` (overhead; RGB keyboard trips the change gate 58/69 frames, keyboard
+   strip should be masked or set to a static colour). Both git-excluded. Folder layout for
+   `forgemind calibrate`:
    - 8–10 of the demo objects, **including look-alikes** (two screwdrivers, two hex keys).
    - One folder per object, named `<concept>-<which>` (e.g. `hex_key-2.5mm`,
      `screwdriver-red`); the part before `-` is what SAM is asked for.
@@ -105,6 +122,13 @@ Voice Transcribe $0.18 per audio hour. Bulk work (evaluation, simulated users,
 calibration) runs on local models: SAM 3.1, Glimmer, embedders.
 
 ## Gotchas
+
+- `.env` holds the real `MODEL_API_KEY`; `Settings.from_env` loads it, so test fixtures
+  must override `meta_api_key=""` (conftest does). A test once reached the real API.
+- Voice Transcribe rejects audio slower than real time ("Ingress audio slower than
+  real-time"); keep ~1–2 s of lead when replaying files. The relay should recover from it.
+- SAM reads a digital stopwatch as "multimeter" (0.94): add decoy concepts or rely on
+  taught identity for the multimeter.
 
 - `sam3` on Windows needs `triton-windows`, `einops`, `pycocotools`, `psutil` (none are
   declared by the package).

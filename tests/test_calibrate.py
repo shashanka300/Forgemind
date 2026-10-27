@@ -48,3 +48,14 @@ def test_run_end_to_end_on_colour_objects(tmp_path, settings):
     assert r["pairs"] == {"same_object": 18, "different": 48, "look_alike": 16}
     assert r["identification"]["queries"] == 6 and r["auc"] is not None
     assert (tmp_path / "rep.json").exists()
+
+
+def test_pick_embedder_prefers_text_capable_unless_clear_win():
+    from forgemind.calibrate import pick_embedder
+
+    def r(name, recall, look):
+        return {"embedder": name, "identification": {"at_target": {"recall": recall}},
+                "auc_look_alike": look}
+    assert pick_embedder([r("pe", 0.889, 0.775), r("dinov3", 0.944, 0.587)])["embedder"] == "pe"
+    assert pick_embedder([r("pe", 0.5, 0.7), r("dinov3", 0.9, 0.6)])["embedder"] == "dinov3"
+    assert pick_embedder([r("clip", 0.6, 0.68), r("pe", 0.889, 0.775)])["embedder"] == "pe"

@@ -23,7 +23,7 @@ from forgemind.memory.db import blob_to_vec, vec_to_blob
 HEARTBEAT_S = 60
 REAPPEAR_S = 300
 CONTINUITY_BONUS = 0.10
-# CLIP text->image cosine is small (~0.15-0.35); below this it's noise.
+# Default floor for text->image search; embedders set their own (text_min_sim).
 VISUAL_MIN = 0.22
 
 
@@ -264,9 +264,10 @@ class Registry:
         hits = self.index.search(self.emb.embed_text(f"a photo of a {q}"), limit=40,
                                  where={"kind": "crop"})
         seen, out = set(), []
+        floor = getattr(self.emb, "text_min_sim", VISUAL_MIN)
         for _, score, p in hits:
             eid = p.get("entity_id")
-            if score < VISUAL_MIN or eid in seen:
+            if score < floor or eid in seen:
                 continue
             seen.add(eid)
             v = self.view(self.get(eid))

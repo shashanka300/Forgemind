@@ -192,6 +192,28 @@ def recommend(result):
     return {"FM_TEACH_MIN_SIM": t, "FM_MATCH_MIN_SIM": m if m is not None else t}
 
 
+TEXT_CAPABLE = {"clip", "pe"}       # can also embed text (where_is by description)
+IMAGE_ONLY_MARGIN = 0.10             # recall an image-only model must win by
+
+
+def pick_embedder(results):
+    """Best embedder: recall at the target precision, then look-alike AUC.
+
+    Text-capable models are preferred: an image-only model (DINO) would need a
+    second vector per crop for text search, so it must win by a clear margin.
+    """
+    def key(r):
+        return ((r["identification"]["at_target"] or {}).get("recall", 0),
+                r["auc_look_alike"] or 0)
+    text = [r for r in results if r["embedder"] in TEXT_CAPABLE]
+    best = max(results, key=key)
+    if text and best["embedder"] not in TEXT_CAPABLE:
+        best_text = max(text, key=key)
+        if key(best)[0] - key(best_text)[0] <= IMAGE_ONLY_MARGIN:
+            return best_text
+    return best
+
+
 def _mean(xs):
     return round(float(np.mean(xs)), 3) if xs else None
 
