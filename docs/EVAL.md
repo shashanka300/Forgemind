@@ -17,6 +17,16 @@ column says how to reproduce it. PRD §14 lists the acceptance checks, §15 the 
 
 Live runs on the real bench and phone are still to do (needs the user's setup).
 
+## Full-system rehearsal (all real models at once)
+
+A scripted phone drove a live server (Spark, SAM 3.1 local, Perception Encoder, spend ledger)
+over HTTP + WebSocket: bench frame → teach "my multimeter" → where_is → start session → plan
+→ log step → "read the multimeter display" (server requested a close-up; the phone sent a
+real meter photo; Spark read 0.006 V, logged as an instrument reading) → "write it up"
+(report served as HTML, 10 [E#] references). Turns took 2.4–4.0 s, the close-up 9.2 s and
+the report 11 s (both covered by the spoken acknowledgement). Cost of the whole rehearsal:
+**$0.056** (9 model calls).
+
 ## Agent (Muse Spark via Meta Model API)
 
 | Metric | Value | Reproduce |

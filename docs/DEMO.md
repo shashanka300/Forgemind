@@ -44,8 +44,9 @@ the day before the shoot.
 - Model API slow or down → `FM_FALLBACK_PROVIDER=compat` with Glimmer running locally
   (see HANDOFF), or re-take the scene.
 - Speech misheard → type the line into the phone's text box (same path).
-- The iron isn't recognised → it wasn't taught on this camera angle: teach it again from
-  the bench camera's view (hold it under the camera, "this is my soldering iron").
+- The iron isn't recognised by the bench camera → teach it again on the phone, held at
+  about the bench camera's distance and angle, and turn it a few times; then check the
+  safety alert in rehearsal (scene 5) before the shoot.
 - A recorded bench clip can stand in for the live camera during rehearsals:
   `forgemind static-cam --device clip.mp4 --loop --token <t>`.
 
