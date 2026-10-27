@@ -186,3 +186,21 @@ def test_watch_matches_taught_name_not_just_detector_concept(rt):
         assert "soldering iron" in alerts[0]["message"]
     finally:
         del COLORS["screwdriver"]
+
+
+def test_prune_keeps_referenced_and_recent_keyframes(rt):
+    import os
+    mem = rt.memory
+    for i in range(3):                              # three frames; only the last is referenced
+        rt.perception.process("static", scene([("multimeter", .3 + .1 * i, .4, .45 + .1 * i, .6)]),
+                              ts=time.time() - 3600 + i, force=True)
+    files = sorted(mem.keyframes_dir.glob("*.jpg"))
+    assert len(files) == 3
+    old = time.time() - 3600
+    for p in files:
+        os.utime(p, (old, old))
+    (mem.keyframes_dir / "fresh.jpg").write_bytes(b"x")       # recent, unreferenced
+    removed = mem.prune_keyframes(older_than_s=600)
+    left = {p.name for p in mem.keyframes_dir.glob("*.jpg")}
+    referenced = {v for q in mem.KEYFRAME_REFS for r in mem.db.all(q) for v in r.values() if v}
+    assert "fresh.jpg" in left and referenced <= left and removed == 3 - len(referenced & {p.name for p in files})

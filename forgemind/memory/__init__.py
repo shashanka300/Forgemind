@@ -26,6 +26,28 @@ class WorldMemory:
     def reports_dir(self):
         return self.settings.data_dir / "reports"
 
+    KEYFRAME_REFS = ("SELECT last_keyframe FROM entities", "SELECT keyframe FROM sightings",
+                     "SELECT keyframe FROM entity_refs", "SELECT keyframe FROM steps",
+                     "SELECT keyframe FROM measurements")
+
+    def prune_keyframes(self, older_than_s=600, now=None):
+        """Delete keyframes nothing refers to (the bench camera saves one per
+        processed frame). Recent ones stay: the phone may still show them."""
+        import time
+        now = now or time.time()
+        keep = set()
+        for q in self.KEYFRAME_REFS:
+            keep |= {v for r in self.db.all(q) for v in r.values() if v}
+        removed = 0
+        for p in self.keyframes_dir.glob("*.jpg"):
+            try:
+                if p.name not in keep and now - p.stat().st_mtime > older_than_s:
+                    p.unlink()
+                    removed += 1
+            except OSError:
+                pass
+        return removed
+
     def close(self):
         self.index.close()
         self.db.close()

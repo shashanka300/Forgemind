@@ -11,6 +11,7 @@ from forgemind.providers import build_embedder, build_llm, build_segmenter
 from forgemind.server.asr import VoiceTranscribeRelay
 
 SAFETY_EVERY_S = 5.0
+PRUNE_EVERY_TICKS = 120          # unreferenced keyframes are pruned every 10 minutes
 
 
 class Runtime:
@@ -49,11 +50,18 @@ class Runtime:
 
     def start_background(self):
         def loop():
+            ticks = 0
             while not self._stop.wait(SAFETY_EVERY_S):
+                ticks += 1
                 try:
                     self.safety.evaluate()
                 except Exception as e:  # keep watching
                     print(f"safety loop: {e}")
+                if ticks % PRUNE_EVERY_TICKS == 0:
+                    try:
+                        self.memory.prune_keyframes()
+                    except Exception as e:
+                        print(f"keyframe prune: {e}")
         threading.Thread(target=loop, daemon=True, name="safety").start()
 
     def close(self):
