@@ -60,7 +60,7 @@ def cmd_serve(args):
 
 def cmd_static_cam(args):
     from forgemind.cameras.static_cam import run
-    run(args.server, args.token, args.device, args.fps, args.show)
+    run(args.server, args.token, args.device, args.fps, args.show, args.loop)
 
 
 def cmd_tags(args):
@@ -244,6 +244,7 @@ def main(argv=None):
     p.add_argument("--device", default="0", help="camera index or stream URL")
     p.add_argument("--fps", type=float, default=1.0)
     p.add_argument("--show", action="store_true", help="preview window (q quits)")
+    p.add_argument("--loop", action="store_true", help="loop a video file (rehearsals)")
     p.set_defaults(fn=cmd_static_cam)
     p = sub.add_parser("tags", help="printable AprilTag sheet for the zones")
     p.add_argument("--out", default="zone-tags.png")
