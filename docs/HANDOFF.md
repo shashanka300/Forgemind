@@ -59,8 +59,8 @@ Where the build stands and what to do next. Update this at the end of each work 
    Missed detections are vocabulary (SAM never matched "usb charger" to the white cube
    charger; blue pliers missed): tune `FM_CONCEPTS` to the demo objects. User footage so far:
    `sampledata.mp4` (handheld walk-through, narrated: names via Voice Transcribe) and
-   `fixed cam.mp4` (overhead; RGB keyboard trips the change gate 58/69 frames, keyboard
-   strip should be masked or set to a static colour). Both git-excluded. Folder layout for
+   `fixed cam.mp4` (overhead). Correction: the RGB keyboard never tripped the change gate on
+   its own (0/69 frame pairs at 1 fps); the gate fired because hands moved almost all clip. Both git-excluded. Folder layout for
    `forgemind calibrate`:
    - 8–10 of the demo objects, **including look-alikes** (two screwdrivers, two hex keys).
    - One folder per object, named `<concept>-<which>` (e.g. `hex_key-2.5mm`,
@@ -88,10 +88,13 @@ Where the build stands and what to do next. Update this at the end of each work 
    few bike-repair takes (downscaled) for a larger cross-camera test with real tools.
 5. **Glimmer server:** download the Q4 GGUF, serve with llama.cpp (`-c 32768`), point
    `FM_COMPAT_*` at it, confirm tool calls with `forgemind check`.
-6. **Day 3 remaining:** bench-region setting for the static camera (mask the RGB keyboard
-   strip; also keeps faces and off-bench things out of detection and API frames); tune
-   `FM_CONCEPTS` to the demo objects (add decoys like "stopwatch"); try teaching on the
-   real phone over zrok. Then Day 4: `where_is` end to end.
+6. **Day 3 remaining:** bench region is built (`FM_BENCH_ROI`/`FM_BENCH_MASK`, suggested by
+   `forgemind bench-region <video> [--roi] [--write]`; masks never cover detected bench
+   objects; ROI crop is opt-in). Set it once the bench camera's final mount is fixed (masks
+   are per camera position). Tune `FM_CONCEPTS` to the demo objects (add decoys like
+   "stopwatch"); try teaching on the real phone over zrok. Then Day 4: `where_is` end to end.
+   Note: "covered isn't missing" can delay a real "gone" while hands stay nearby (headset band
+   picked up at ~55 s not reported by 69 s); revisit if it hurts the safety watch.
 7. **Added from the personal health agent paper** (PRD §7.4, Nature 2026), scheduled in §13:
    - F-AGT-8 explicit `missing` / `stale` fields from tools (Day 6, P0)
    - F-OUT-5 deterministic citation check on reports (Day 8, P0)

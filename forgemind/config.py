@@ -13,6 +13,9 @@ except ImportError:  # pragma: no cover
     pass
 
 
+from forgemind.perception import bench as _bench  # noqa: E402
+
+
 def _env(name, default=""):
     v = os.environ.get(name)
     return default if v is None or v.strip() == "" else v.strip()
@@ -63,6 +66,8 @@ class Settings:
     concepts: list[str] = field(default_factory=lambda: DEFAULT_CONCEPTS.split(","))
     zones: dict[int, str] = field(default_factory=dict)
     static_zone: str = "bench"
+    bench_roi: tuple | None = None
+    bench_masks: list = field(default_factory=list)
 
     default_watch: str = "soldering iron"
     unattended_seconds: float = 60
@@ -106,6 +111,8 @@ class Settings:
                       if c.strip()],
             zones={int(k): v for k, v in zones_raw.items()},
             static_zone=_env("FM_STATIC_ZONE", "bench"),
+            bench_roi=_bench.parse_roi(_env("FM_BENCH_ROI")),
+            bench_masks=_bench.parse_masks(_env("FM_BENCH_MASK")),
             default_watch=_env("FM_DEFAULT_WATCH", "soldering iron"),
             unattended_seconds=float(_env("FM_UNATTENDED_SECONDS", "60")),
             teach_min_sim=float(_env("FM_TEACH_MIN_SIM", "0.80")),

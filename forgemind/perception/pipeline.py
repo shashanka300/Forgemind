@@ -20,6 +20,7 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from forgemind.config import HAZARD_CONCEPTS, PRESENCE_CONCEPTS
+from forgemind.perception import bench
 from forgemind.perception.zones import ZoneTracker
 
 KEYFRAME_PX = 1024
@@ -165,6 +166,8 @@ class Perception:
             return {"paused": True, "detections": []}
         ts = ts or time.time()
         image = data if isinstance(data, Image.Image) else self.decode(data)
+        if camera == "static":
+            image = bench.apply(image, self.s.bench_roi, self.s.bench_masks)
         with self._lock:
             return self._process(camera, image, ts, force)
 

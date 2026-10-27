@@ -142,6 +142,53 @@ def cmd_replay(args):
     run(s, args.video, camera=args.camera, fps=args.fps, out_dir=args.out)
 
 
+def cmd_bench_region(args):
+    import json
+    import re
+    from pathlib import Path
+
+    from PIL import Image
+
+    from forgemind.config import Settings
+    from forgemind.perception import bench
+    from forgemind.providers import build_segmenter
+    s = Settings.from_env()
+    if args.segmenter:
+        s.segmenter = args.segmenter
+    if args.concepts:
+        s.concepts = [c.strip() for c in args.concepts.split(",") if c.strip()]
+    src = Path(args.source)
+    if src.suffix.lower() in (".mp4", ".mov", ".mkv", ".avi", ".webm"):
+        from forgemind.replay import frames
+        img = next((im for t, im in frames(src, 1.0) if t >= args.at), None)
+        if img is None:
+            raise SystemExit(f"no frame at {args.at}s in {src}")
+    else:
+        img = Image.open(src).convert("RGB")
+    roi, masks, dropped = bench.suggest(img, build_segmenter(s, None), s.object_concepts,
+                                        with_roi=args.roi)
+    for concept, m in dropped:
+        print(f"not masking the {concept} at {list(m)}: bench objects lie on it")
+    roi_txt = ",".join(str(v) for v in roi) if roi else ""
+    mask_txt = json.dumps([list(m) for m in masks]) if masks else ""
+    out = Path(args.out or s.data_dir / "bench-region.jpg")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    bench.preview(img, roi, masks, out)
+    print(f"FM_BENCH_ROI={roi_txt}")
+    print(f"FM_BENCH_MASK={mask_txt}")
+    print(f"preview (green = bench, red = ignored; right = what the pipeline sees): {out}")
+    if args.write:
+        env = Path(".env")
+        text = env.read_text(encoding="utf-8") if env.exists() else ""
+        for key, val in (("FM_BENCH_ROI", roi_txt), ("FM_BENCH_MASK", mask_txt)):
+            line = f"{key}={val}"
+            text, n = re.subn(rf"(?m)^{key}=.*$", line.replace("\\", "\\\\"), text)
+            if not n:
+                text += ("" if text.endswith("\n") or not text else "\n") + line + "\n"
+        env.write_text(text, encoding="utf-8")
+        print("written to .env")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="forgemind", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -178,6 +225,16 @@ def main(argv=None):
     p.add_argument("--match", type=float, help="override FM_MATCH_MIN_SIM")
     p.add_argument("--out", help="output folder (default: <data dir>/replay/<video name>)")
     p.set_defaults(fn=cmd_replay)
+    p = sub.add_parser("bench-region", help="suggest FM_BENCH_ROI / FM_BENCH_MASK from a frame")
+    p.add_argument("source", help="sample image, or a video from the bench camera")
+    p.add_argument("--at", type=float, default=0.0, help="seconds into the video")
+    p.add_argument("--segmenter", help="override FM_SEGMENTER (default from .env)")
+    p.add_argument("--out", help="preview image path")
+    p.add_argument("--roi", action="store_true",
+                   help="also crop to the desk (for a camera that sees the room or you)")
+    p.add_argument("--concepts", help="bench objects to protect from masks (default FM_CONCEPTS)")
+    p.add_argument("--write", action="store_true", help="write the values into .env")
+    p.set_defaults(fn=cmd_bench_region)
     p = sub.add_parser("check", help="test the configured model API")
     p.set_defaults(fn=cmd_check)
     args = ap.parse_args(argv)
