@@ -19,6 +19,7 @@ class Safety:
         self.s, self.db, self.hub = settings, db, hub
         self.last_present = time.time()
         self.last_seen = {}          # concept -> ts (static camera)
+        self.phone_zone = None       # where the user's phone last saw a zone tag
         self._lock = threading.Lock()
         if settings.default_watch and not db.one(
                 "SELECT id FROM watches WHERE kind='unattended' AND concept=?",
@@ -50,6 +51,9 @@ class Safety:
         with self._lock:
             self.last_seen[key] = max(self.last_seen.get(key, 0), ts or time.time())
 
+    def phone_at(self, zone):
+        self.phone_zone = zone
+
     def user_away_for(self, now=None):
         return max(0.0, (now or time.time()) - self.last_present)
 
@@ -69,6 +73,8 @@ class Safety:
                     continue
                 msg = (f"The {concept} is on the {self.s.static_zone} and nobody has been "
                        f"there for {int(away // 60)} min {int(away % 60)} s.")
+                if self.phone_zone and self.phone_zone != self.s.static_zone:
+                    msg += f" Your phone is in the {self.phone_zone}."
                 severity = "warning"
             else:
                 msg = f"I can see {concept} on the {self.s.static_zone}."

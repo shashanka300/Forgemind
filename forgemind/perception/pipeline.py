@@ -43,6 +43,10 @@ CONFIRM_IOU = 0.3
 # Object boxes larger than this are scene-level labels, not objects (SAM boxes
 # the whole photo for "soldering station").
 MAX_OBJECT_AREA = 0.6
+# After a look request at a zone resolves, phone frames in that zone without the
+# object count towards "it's not there" (PRD acceptance #5).
+ABSENT_AFTER_FRAMES = 3
+ABSENT_CHECK_S = 30.0
 # Two different object concepts on one box (SAM said "phone" 0.90 and
 # "multimeter" 0.95 for the same meter): keep the higher score.
 CROSS_CONCEPT_IOU = 0.7
@@ -132,6 +136,7 @@ class Perception:
         self.last_keyframe = {}      # camera -> ts
         self.misses = {}             # entity id -> consecutive static misses
         self.pending = {}            # camera -> candidate new objects from the last frame
+        self.absence_checks = {}     # entity id -> {"zone", "label", "misses", "until"}
         self.gone = set()
         self.paused = False
         self.private = False
@@ -204,6 +209,13 @@ class Perception:
             stale = ts - self.last_processed.get(camera, 0) >= STATIC_FORCE_EVERY_S
             if not (changed or stale or force):
                 prev = self.latest.get(camera, {})
+                for d in prev.get("detections", []):   # unchanged scene: still there
+                    if d.get("kind") in ("object", "hazard"):
+                        self.safety.seen(d["concept"], ts)
+                        if d.get("label") and d["label"] != d["concept"]:
+                            self.safety.seen(d["label"], ts)
+                    elif d.get("kind") == "presence":
+                        self.safety.present(ts)
                 return {"camera": camera, "zone": zone, "skipped": True, "events": [],
                         "detections": prev.get("detections", []), "keyframe": None}
         self.last_processed[camera] = ts
@@ -280,6 +292,13 @@ class Perception:
                 self.mem.db.log_event("look_done", "observed", {"target": look["target"]},
                                       camera="mobile", zone=zone, ts=ts)
                 events.append({"type": "look_done", "target": look["target"]})
+                eid = look.get("entity_id")
+                if eid and eid not in claimed and zone:
+                    self.absence_checks[eid] = {"zone": zone, "misses": 0, "until": ts + ABSENT_CHECK_S,
+                                                "label": self.mem.registry.label(eid)}
+            events += self._check_absences(zone, claimed, ts)
+            if zone:
+                self.safety.phone_at(zone)
             if zone_changed and zone:
                 self.mem.db.log_event("phone_zone", "observed", {"zone": zone},
                                       camera="mobile", zone=zone, ts=ts)
@@ -309,6 +328,25 @@ class Perception:
             if sim >= best_sim:
                 best, best_sim = eid, sim
         return best
+
+    def _check_absences(self, zone, seen_ids, ts):
+        """The user is looking where an object should be: is it there?"""
+        events = []
+        for eid, c in list(self.absence_checks.items()):
+            if eid in seen_ids or ts > c["until"]:
+                del self.absence_checks[eid]          # found it (seek/registry handle that)
+                continue
+            if zone != c["zone"]:
+                continue
+            c["misses"] += 1
+            if c["misses"] >= ABSENT_AFTER_FRAMES:
+                del self.absence_checks[eid]
+                self.mem.db.log_event("not_found", "observed", {"label": c["label"], "zone": zone},
+                                      camera="mobile", zone=zone, entity_id=eid, ts=ts)
+                self.hub.say(f"I don't see the {c['label']} on the {zone}. It must have moved.")
+                events.append({"type": "not_found", "entity_id": eid, "label": c["label"],
+                               "zone": zone})
+        return events
 
     def _confirmed(self, camera, d, vec, ts):
         """Was this unmatched detection also a candidate in the previous frame?"""

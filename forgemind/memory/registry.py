@@ -237,7 +237,12 @@ class Registry:
         who = {"static": "the bench camera", "mobile": "your phone",
                "user": "you"}.get(v["camera"], v["camera"])
         s = f"The {v['label']} was last seen {where} by {who}, {v['ago']}."
-        if v["stale"]:
+        miss = self.db.one("SELECT ts, zone FROM events WHERE type='not_found' AND entity_id=?"
+                           " AND ts > ? ORDER BY ts DESC LIMIT 1", (v["id"], v["last_seen"]))
+        if miss:
+            s += (f" But when you checked the {miss['zone']} {fmt_ago(time.time() - miss['ts'])},"
+                  " it wasn't there.")
+        elif v["stale"]:
             s += " That's a while ago, so it may have moved."
         return s
 

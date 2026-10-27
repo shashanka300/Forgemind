@@ -205,8 +205,19 @@ class ToolBox:
             summary = self.mem.registry.describe(top)
             if top["last_seen"]:
                 self.ctx.hub.seek(top["id"], top["label"])
-                near = f"get to the {top['zone']}" if top["zone"] else "are near it"
-                summary += f" When you {near}, point the phone around and I'll highlight it."
+                if top["stale"] and top["zone"]:
+                    # Memory is old: ask the user to look (PRD acceptance #5). The phone
+                    # then either finds it (seek -> highlight) or records it as gone.
+                    self.ctx.hub.request_look(top["zone"], f"checking for the {top['label']}",
+                                              zone=top["zone"], entity_id=top["id"])
+                    self.mem.db.log_event("look_request", "inferred",
+                                          {"target": top["zone"], "zone": top["zone"],
+                                           "reason": "stale memory", "entity": top["label"]})
+                    summary += (f" Could you point the phone at the {top['zone']}"
+                                " so I can check it's still there?")
+                else:
+                    near = f"get to the {top['zone']}" if top["zone"] else "are near it"
+                    summary += f" When you {near}, point the phone around and I'll highlight it."
             # (describe() already says when the sighting is stale)
         return {"found": True, "results": hits, "in_view": bool(in_view), "summary": summary,
                 "stale": top["stale"], "confidence": top["confidence"],
