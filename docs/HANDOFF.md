@@ -137,8 +137,8 @@ Where the build stands and what to do next. Update this at the end of each work 
 ## Budget
 
 **Hard cap: USD 150 of Meta Model API spend for the whole engagement** (user's limit).
-Spent so far: under $0.05 (Oct 27: `forgemind check`, a few Spark/Wonder calls, 4 SAM
-images, 10 s of Voice Transcribe). Before any API-heavy run, estimate the cost first.
+Spent so far: about $0.65 (Oct 27: `forgemind check`, SAM API tests, Voice Transcribe
+tests, ~9 agent-eval runs at $0.03–0.15 each). Before any API-heavy run, estimate the cost first.
 Prices: Spark $1.25/$4.25 per 1M tokens in/out (~$0.003 per agent call at ~2.3k prompt
 tokens), Wonder $4/$20 (~3x Spark), SAM API $2.50 per 1k images (one per concept),
 Voice Transcribe $0.18 per audio hour. Bulk work (evaluation, simulated users,
