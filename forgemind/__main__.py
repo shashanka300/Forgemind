@@ -228,6 +228,16 @@ def cmd_spend(args):
         print(f"  {d}  ${u:.4f}")
 
 
+def cmd_sim_users(args):
+    import tempfile
+
+    from forgemind.config import Settings
+    from forgemind.sim_users import run
+    s = Settings.from_env(token="off", data_dir=tempfile.mkdtemp(prefix="fm-sim-"),
+                          vector_backend="numpy", embedder="hash")
+    run(s, out=args.out)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="forgemind", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -291,6 +301,9 @@ def main(argv=None):
     p.add_argument("--add", type=float, help="record a manual amount (e.g. spend before the ledger)")
     p.add_argument("--note", default="")
     p.set_defaults(fn=cmd_spend)
+    p = sub.add_parser("sim-users", help="simulated users (local model) against the real agent")
+    p.add_argument("--out", help="JSON results path")
+    p.set_defaults(fn=cmd_sim_users)
     p = sub.add_parser("check", help="test the configured model API")
     p.set_defaults(fn=cmd_check)
     args = ap.parse_args(argv)

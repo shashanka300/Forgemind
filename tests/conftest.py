@@ -68,7 +68,7 @@ def _isolated_ledger(tmp_path, monkeypatch):
 @pytest.fixture
 def settings(tmp_path):
     # Never use the developer's real key or providers from .env in tests.
-    return Settings.from_env(data_dir=tmp_path / "data", embedder="hash", meta_api_key="", confirm_new=False, notes=False,
+    return Settings.from_env(data_dir=tmp_path / "data", embedder="hash", meta_api_key="", confirm_new=False, notes=False, report_async=False,
                              fallback_provider="", sam_checkpoint="sam3.1",
                              vector_backend="numpy", llm_provider="mock", segmenter="none",
                              token="secret-token", send_frames=False,

@@ -77,6 +77,7 @@ class Settings:
     teach_min_sim: float = 0.80
     confirm_new: bool = True
     notes: bool = True
+    report_async: bool = True
     budget_usd: float = 140.0
     ledger_path: str = ""
     match_min_sim: float = 0.75
@@ -123,6 +124,7 @@ class Settings:
             teach_min_sim=float(_env("FM_TEACH_MIN_SIM", "0.80")),
             confirm_new=_bool("FM_CONFIRM_NEW", True),
             notes=_bool("FM_NOTES", True),
+            report_async=_bool("FM_REPORT_ASYNC", True),
             budget_usd=float(_env("FM_BUDGET_USD", "140")),
             ledger_path=_env("FM_LEDGER"),
             match_min_sim=float(_env("FM_MATCH_MIN_SIM", "0.75")),

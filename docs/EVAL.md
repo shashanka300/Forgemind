@@ -41,6 +41,22 @@ the report 11 s (both covered by the spoken acknowledgement). Cost of the whole 
 Local alternative tested: Muse Glimmer 30B Q4 on the 5090 (llama.cpp, ~80 tok/s): 9/15 tools,
 median 4.5 s, invented actions → not used for live turns.
 
+## Simulated users (PRD §15.1)
+
+`forgemind sim-users`: Muse Glimmer (local, free) plays a person with a goal in their own
+words; the real agent (Spark) answers; success is judged in code from tools and memory.
+
+| Persona | Result | Turns |
+|---|---|---|
+| Resume yesterday's soldering job, then report a step | Pass | 2–6 |
+| Lost 2.5 mm hex key | Pass | 2 |
+| Start a session, log 3.3 V, ask for a report | Pass after a fix (first run: the report request in "I measured 3.3 V. Please write up a report." was dropped; compound requests now run every tool, repeated readings are one measurement) | 3 |
+| Leaving the bench, watch the iron | Pass | 1 |
+
+**4/4 personas, 0 false-claim guard events, $0.075 per run.** Reports are now written in the
+background (the summary paragraph takes ~8 s of Spark reasoning): "Writing the report now"
+in ~2 s, report card when done.
+
 ## Perception and memory
 
 | Metric | Value | Reproduce |

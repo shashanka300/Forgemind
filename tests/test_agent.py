@@ -298,3 +298,25 @@ def test_guard_leaves_recall_answers_alone(rt):
     llm = _use(rt, _Scripted(["You measured 3.3 V on the output earlier."]))
     r = rt.agent.handle("what was the output voltage?")
     assert r["reply"] == "You measured 3.3 V on the output earlier." and len(llm.seen) == 1
+
+
+def test_compound_request_runs_both_tools(rt):
+    """Found by the simulated-user eval: the report request after a measurement was dropped."""
+    llm = _use(rt, _Scripted([("log_measurement", {"quantity": "output voltage", "value": 3.3, "unit": "V"}),
+                              ("generate_report", {}),
+                              "The divider was tested.",          # the report's summary paragraph
+                              "Done: logged it and wrote the report."]))
+    rt.agent.tools.run("start_session", {"name": "divider"})
+    r = rt.agent.handle("I measured 3.3 volts at the output. Please write up a report.")
+    assert [t["tool"] for t in r["trace"]] == ["log_measurement", "generate_report"]
+    assert "Logged output voltage = 3.3 V." in r["reply"] and "report" in r["reply"]
+    assert len(llm.seen) == 4          # tool, tool (+ report summary), then "finished"
+
+
+def test_same_reading_twice_is_one_measurement(rt):
+    tb = rt.agent.tools
+    tb.run("start_session", {"name": "divider"})
+    tb.run("log_measurement", {"quantity": "output voltage", "value": 3.3, "unit": "V"})
+    again = tb.run("log_measurement", {"quantity": "Output voltage", "value": 3.3, "unit": "V"})
+    assert again["summary"].startswith("Already logged")
+    assert len(rt.memory.experiments.measurements(rt.memory.experiments.active()["id"])) == 1

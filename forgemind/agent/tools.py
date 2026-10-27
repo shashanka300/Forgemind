@@ -10,6 +10,7 @@ Today a person carrying the phone fulfils them; a robot base or arm can
 implement the same requests later without changing the agent.
 """
 import json
+import threading
 import time
 from typing import Literal
 
@@ -431,6 +432,8 @@ class ToolBox:
         if a.value is None:
             return {**r, "summary": f"I logged {a.quantity} as missing - tell me the value when you have it."}
         summary = f"Logged {a.quantity} = {a.value:g} {a.unit or ''}".rstrip() + "."
+        if r.get("already_logged"):
+            summary = summary.replace("Logged", "Already logged", 1)
         done = self.mem.experiments.complete_measure_step(s["id"], a.quantity, a.source)
         if done:
             nxt = self.mem.experiments.state(s["id"])["next"]
@@ -464,13 +467,31 @@ class ToolBox:
             self.mem.experiments.active() or self.mem.experiments.find(None))
         if not s:
             raise ToolError("There's no session to report on.")
-        r = reports.generate(self.mem.experiments, self.ctx.llm, s["id"], self.mem.reports_dir)
-        self.ctx.hub.push({"type": "report", "url": r["url"], "name": s["name"]})
         missing = self.mem.experiments.gaps(s["id"])
-        summary = f"The report for '{s['name']}' is ready on your phone."
-        if missing:
-            summary += f" It flags {len(missing)} missing value{'s' * (len(missing) > 1)}."
-        return {"url": r["url"], "missing": missing, "summary": summary}
+        flags = (f" It flags {len(missing)} missing value{'s' * (len(missing) > 1)}."
+                 if missing else "")
+
+        def write():
+            r = reports.generate(self.mem.experiments, self.ctx.llm, s["id"], self.mem.reports_dir)
+            self.ctx.hub.push({"type": "report", "url": r["url"], "name": s["name"]})
+            return r
+
+        if getattr(self.ctx.settings, "report_async", False):
+            # The model-written summary takes ~8 s (Spark reasons ~1,300 tokens):
+            # answer now, deliver the report card when it's done.
+            def background():
+                try:
+                    write()
+                    self.ctx.hub.say(f"The report for {s['name']} is ready on your phone.")
+                except Exception as e:
+                    self.ctx.hub.say(f"Sorry, the report failed: {e}")
+            threading.Thread(target=background, daemon=True, name="report").start()
+            return {"url": None, "missing": missing, "pending": True,
+                    "summary": f"Writing the report for '{s['name']}' now; it'll be on your phone"
+                               f" in a few seconds.{flags}"}
+        r = write()
+        return {"url": r["url"], "missing": missing,
+                "summary": f"The report for '{s['name']}' is ready on your phone.{flags}"}
 
     def alert(self, a: Alert):
         self.ctx.hub.push({"type": "alert", "severity": a.severity, "message": a.message})

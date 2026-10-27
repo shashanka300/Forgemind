@@ -97,3 +97,17 @@ def test_report_with_comparison_symbols_writes_and_serves_html(rt):
         assert "<table>" in page.text and 'class="ref">[E' in page.text and "Δ" in page.text
         raw = c.get(out["url"] + "?raw=1", headers=h)
         assert raw.text == md
+
+
+def test_async_report_answers_now_and_delivers_later(rt):
+    import time as _t
+    rt.settings.report_async = True
+    rt.agent.tools.run("start_session", {"name": "divider"})
+    out = rt.agent.tools.run("generate_report", {})
+    assert out["pending"] and out["summary"].startswith("Writing the report for 'divider' now")
+    for _ in range(100):
+        if any(m["type"] == "report" for m in rt.hub.outbox):
+            break
+        _t.sleep(0.05)
+    assert [m["name"] for m in rt.hub.outbox if m["type"] == "report"] == ["divider"]
+    assert any(m["type"] == "say" and "ready on your phone" in m["text"] for m in rt.hub.outbox)

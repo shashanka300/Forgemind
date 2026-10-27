@@ -147,6 +147,14 @@ class Experiments:
 
     def log_measurement(self, sid, quantity, value, unit=None, source="stated",
                         keyframe=None, note=None):
+        if value is not None:
+            # The same reading repeated within a minute is one measurement, not two.
+            dup = self.db.one("SELECT id, event_id FROM measurements WHERE session_id=? AND"
+                              " lower(quantity)=lower(?) AND value=? AND ts > ?",
+                              (sid, quantity, value, time.time() - 60))
+            if dup:
+                return {"measurement_id": dup["id"], "event_id": dup["event_id"],
+                        "already_logged": True}
         ev = self.db.log_event("measurement", source, {"quantity": quantity, "value": value,
                                                        "unit": unit, "note": note}, session_id=sid)
         mid = self.db.execute(

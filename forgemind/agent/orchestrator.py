@@ -26,6 +26,27 @@ NUDGE = ("Your last reply said you did something, but you called no tool, so not
          "happened. If the user asked for an action, call the tool now. If you were only "
          "answering from memory, reply again without claiming a new action.")
 UNDONE = "Sorry, I didn't actually record that. Could you say it again?"
+# More than one request in one utterance ("I measured 3.3 V. Write it up."):
+# don't end the turn after the first tool's summary; let the model continue.
+# Found by the simulated-user eval (the report request was dropped).
+_ACTIONS = (r"(write|log|start|read|set|watch|plan|end|stop|teach|show|record|compare|"
+            r"generate|make|measure|check|remember|look|highlight|resume|note)")
+COMPOUND = re.compile(
+    r"[.!?;]\s+(?:(?:please|can you|could you|now|then|and|also|ok(?:ay)?)[\s,]+)*" + _ACTIONS + r"\b"
+    r"|\b(and then|after that)\b"
+    r"|,?\s+(?:and|then|also)\s+(?:please\s+|can you\s+)?" + _ACTIONS + r"\b",
+    re.I)
+_TAIL_REQUEST = re.compile(r",\s*(?:can you|could you|please)\s+" + _ACTIONS + r"\b", re.I)
+
+
+def is_compound(text):
+    """Two requests in one utterance? ("I measured 5 V, can you write it up?")"""
+    if COMPOUND.search(text):
+        return True
+    m = _TAIL_REQUEST.search(text)          # but "Hey, can you start a session" is one request
+    return bool(m) and len(re.findall(r"[a-z]{2,}", text[:m.start()].lower())) >= 2
+
+
 HISTORY_TURNS = 8
 
 
@@ -97,6 +118,11 @@ class Agent:
                 res = llm.chat(messages, tools=self.schemas, model=llm.model_for("agent"))
                 if not res.tool_calls:
                     reply = (res.content or "").strip()
+                    if trace and all(t["summary"] and not t["error"] and t["tool"] not in NEEDS_PHRASING
+                                     for t in trace):
+                        # compound turn finished: speak the tools' own (accurate) summaries
+                        reply = " ".join(dict.fromkeys(t["summary"] for t in trace))
+                        break
                     if not trace and ACTION_CLAIM.match(reply):
                         self.ctx.memory.db.log_event("guard", "inferred",
                                                      {"claim": reply[:200], "retried": not nudged})
@@ -121,10 +147,10 @@ class Agent:
                     messages.append({"role": "tool", "tool_call_id": c.id,
                                      "content": json.dumps(out, default=str)[:12000]})
                 trace += step
-                if all(s["summary"] and not s["error"] and s["tool"] not in NEEDS_PHRASING
-                       for s in step):
+                if (all(s["summary"] and not s["error"] and s["tool"] not in NEEDS_PHRASING
+                        for s in step) and not is_compound(text.strip())):
                     # The tools' summaries are the answer: speak them, skip a model call.
-                    reply = " ".join(dict.fromkeys(s["summary"] for s in step))
+                    reply = " ".join(dict.fromkeys(s["summary"] for s in trace))
                     break
             if reply is None:
                 reply = trace[-1]["summary"] if trace else "Sorry, I got stuck on that."
