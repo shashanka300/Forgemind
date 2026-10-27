@@ -94,6 +94,16 @@ Where the build stands and what to do next. Update this at the end of each work 
 - **Ignored locally** (`.git/info/exclude`): `.claude/`, `forgemind-data-dev/`.
 - **Commits:** no AI attribution lines; author `shashanka300 <shashanka300@gmail.com>`.
 
+## Budget
+
+**Hard cap: USD 150 of Meta Model API spend for the whole engagement** (user's limit).
+Spent so far: under $0.05 (Oct 27: `forgemind check`, a few Spark/Wonder calls, 4 SAM
+images, 10 s of Voice Transcribe). Before any API-heavy run, estimate the cost first.
+Prices: Spark $1.25/$4.25 per 1M tokens in/out (~$0.003 per agent call at ~2.3k prompt
+tokens), Wonder $4/$20 (~3x Spark), SAM API $2.50 per 1k images (one per concept),
+Voice Transcribe $0.18 per audio hour. Bulk work (evaluation, simulated users,
+calibration) runs on local models: SAM 3.1, Glimmer, embedders.
+
 ## Gotchas
 
 - `sam3` on Windows needs `triton-windows`, `einops`, `pycocotools`, `psutil` (none are

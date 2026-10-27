@@ -346,7 +346,7 @@ Qdrant Edge collections: `crops` (object crops, image vectors from the chosen em
 | Live highlight latency on phone | Under 500 ms from frame to overlay at the bench |
 | Safety alert latency | Under 10 s after the unattended threshold |
 | Static camera compute | Change-gated; local SAM runs only on changed frames |
-| Model cost | No per-frame API calls. Spark by default, Wonder for hard turns; Voice Transcribe ~$0.18/h; SAM API on demand only. Target: whole build week under ~$50 of API spend |
+| Model cost | No per-frame API calls. Spark by default, Wonder for hard turns; Voice Transcribe ~$0.18/h; SAM API on demand only. **Hard cap: USD 150 for the whole engagement** (all Meta Model API use, build + evaluation + demo); working target under ~$50, leaving headroom. Bulk work (evaluation runs, simulated users, calibration) runs on local models |
 | Reliability | Pipelines restart independently; memory survives restarts (SQLite + Qdrant Edge on disk) |
 | Security | Reuse access token + cookie; zrok link treated as a password; no frames sent to the cloud except those the agent needs (continuous perception is local); Contributor mode off |
 | Privacy | Pause and private mode; user can delete any memory; faces are not identified or stored as identities |
