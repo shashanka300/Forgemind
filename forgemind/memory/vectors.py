@@ -28,7 +28,7 @@ class NumpyIndex:
             d = np.load(f, allow_pickle=False)
             self.ids = d["ids"].tolist()
             self.vecs = d["vecs"]
-            self.payloads = json.loads((self.path / "payloads.json").read_text())
+            self.payloads = json.loads((self.path / "payloads.json").read_text(encoding="utf-8"))
         self._next = itertools.count(time.time_ns())
         self._dirty = 0
 
@@ -45,7 +45,7 @@ class NumpyIndex:
 
     def _save(self):
         np.savez(self.path / "index.npz", ids=np.asarray(self.ids, np.int64), vecs=self.vecs)
-        (self.path / "payloads.json").write_text(json.dumps(self.payloads))
+        (self.path / "payloads.json").write_text(json.dumps(self.payloads), encoding="utf-8")
         self._dirty = 0
 
     def search(self, vector, limit=10, where=None):

@@ -117,9 +117,12 @@ def create_app(rt):
                             headers={"Cache-Control": "max-age=31536000, immutable"})
 
     @app.get("/reports/{name}")
-    def report(name: str):
-        return PlainTextResponse(_safe(rt.memory.reports_dir, name).read_text(),
-                                 media_type="text/markdown; charset=utf-8")
+    def report(name: str, raw: int = 0):
+        md = _safe(rt.memory.reports_dir, name).read_text(encoding="utf-8")
+        if raw:
+            return PlainTextResponse(md, media_type="text/markdown; charset=utf-8")
+        from forgemind.reports import to_html
+        return HTMLResponse(to_html(md, title=name))
 
     # -- cameras --------------------------------------------------------------
 

@@ -74,3 +74,26 @@ def test_report_end_to_end_contains_only_logged_numbers(rt):
     logged = {float(x) for x in re.findall(r"\d+(?:\.\d+)?", "3.3 10 22 2 3 1")}
     for n in re.findall(r"(?<![\w.\[E])\d+(?:\.\d+)?", reports._CITE.sub("", summary)):
         assert float(n) in logged
+
+
+def test_report_with_comparison_symbols_writes_and_serves_html(rt):
+    from fastapi.testclient import TestClient
+
+    from forgemind.server.app import create_app
+    tb = rt.agent.tools
+    for v in (3.3, 3.1):                            # two runs -> comparison with Δ and →
+        tb.run("start_session", {"name": "divider"})
+        tb.run("set_config", {"key": "R2", "value": "10k" if v == 3.3 else "22k"})
+        tb.run("log_measurement", {"quantity": "output voltage", "value": v, "unit": "V"})
+        tb.run("end_session", {})
+    out = tb.run("generate_report", {"session_name": "divider"})
+    name = out["url"].split("/")[-1]
+    md = (rt.memory.reports_dir / name).read_text(encoding="utf-8")
+    assert "Δ" in md and "→" in md
+    h = {"Authorization": "Bearer secret-token"}
+    with TestClient(create_app(rt), base_url="https://testserver") as c:
+        page = c.get(out["url"], headers=h)
+        assert page.headers["content-type"].startswith("text/html")
+        assert "<table>" in page.text and 'class="ref">[E' in page.text and "Δ" in page.text
+        raw = c.get(out["url"] + "?raw=1", headers=h)
+        assert raw.text == md

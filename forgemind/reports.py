@@ -190,6 +190,33 @@ def render(facts, narrative=None, note=None):
     return "\n".join(L) + "\n"
 
 
+REPORT_CSS = """
+body{font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#121110;color:#ece7e1}
+main{max-width:860px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:1.5rem;margin:.2em 0 .4em}h2{font-size:1.1rem;margin:1.6em 0 .5em;color:#f2a33a}
+em{color:#a69d93}table{border-collapse:collapse;width:100%;margin:.5em 0;font-size:.95rem}
+th,td{border-bottom:1px solid #2b2724;padding:6px 8px;text-align:left;vertical-align:top}
+th{color:#a69d93;font-weight:600}.ref{font:12px ui-monospace,monospace;color:#7fb2ff;white-space:nowrap}
+strong{color:#ff7a6e}a{color:#7fb2ff}.top{display:flex;gap:12px;font-size:.9rem;margin-bottom:8px}
+@media print{body{background:#fff;color:#000}h2{color:#000}.top{display:none}}
+"""
+
+
+def to_html(md, title="Report"):
+    """Phone-friendly HTML for a report; [E#] references styled as tags."""
+    import html as _html
+    import re as _re
+
+    import markdown
+    body = markdown.markdown(md, extensions=["tables"])
+    body = _re.sub(r"\[(E\d+)\]", r'<span class="ref">[\1]</span>', body)
+    return ("<!doctype html><html><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            f"<title>{_html.escape(title)}</title><style>{REPORT_CSS}</style></head><body><main>"
+            "<div class='top'><a href='?raw=1'>Markdown</a><a href='javascript:print()'>Print / PDF</a></div>"
+            f"{body}</main></body></html>")
+
+
 def generate(experiments, llm, sid, out_dir, use_model=True):
     facts = build_facts(experiments, sid)
     narrative, note, problems = None, None, []
@@ -204,6 +231,6 @@ def generate(experiments, llm, sid, out_dir, use_model=True):
     md = render(facts, narrative, note)
     slug = "".join(c if c.isalnum() else "-" for c in facts["session"]["name"].lower()).strip("-")
     name = f"{slug or 'session'}-{sid}.md"
-    (out_dir / name).write_text(md)
+    (out_dir / name).write_text(md, encoding="utf-8")
     return {"path": str(out_dir / name), "url": f"/reports/{name}", "markdown": md,
             "facts": facts, "generated": fmt_ago(0), "citation_problems": problems}
