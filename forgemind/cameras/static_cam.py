@@ -19,7 +19,11 @@ import time
 import urllib.error
 import urllib.request
 
-FRAME_PX = 1280
+# 4K capture, sent at 2560 px: small parts get twice the pixels for identity
+# crops for ~55 ms more server time per frame than 1280 px (SAM itself works at
+# 1008 px, so detection doesn't change). Measured on an RTX 5090, Oct 28.
+FRAME_PX = 2560
+CAPTURE_SIZE = (3840, 2160)      # requested from webcams (falls back to what they offer)
 
 
 class LatestFrame:
@@ -31,10 +35,17 @@ class LatestFrame:
         self.src = src
         self.is_file = isinstance(src, str) and os.path.isfile(src)
         self.loop = loop
-        self.cap = cv2.VideoCapture(src)
+        if isinstance(src, int) and os.name == "nt":
+            # DirectShow opens USB webcams fastest on Windows; the default backend
+            # also tends to give 640x480, too coarse for small parts.
+            self.cap = cv2.VideoCapture(src, cv2.CAP_DSHOW)
+        else:
+            self.cap = cv2.VideoCapture(src)
         if not self.cap.isOpened():
             raise SystemExit(f"could not open camera {src}")
         if not self.is_file:
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_SIZE[0])
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_SIZE[1])
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
         self.frame, self.ended, self.failures = None, False, 0
@@ -76,7 +87,7 @@ class LatestFrame:
         self.cap.release()
 
 
-def run(server, token, device=0, fps=1.0, show=False, loop=False):
+def run(server, token, device=0, fps=1.0, show=False, loop=False, send_px=FRAME_PX):
     import cv2
     src = int(device) if str(device).isdigit() else device
     cam = LatestFrame(src, loop=loop)
@@ -86,7 +97,14 @@ def run(server, token, device=0, fps=1.0, show=False, loop=False):
         headers["Authorization"] = f"Bearer {token}"
     period = 1.0 / max(0.1, fps)
     kind = "file" if cam.is_file else "camera"
-    print(f"static {kind} {device} -> {url} at {fps} fps (Ctrl+C to stop)")
+    first = cam.latest()
+    for _ in range(50):
+        if first is not None:
+            break
+        time.sleep(0.1)
+        first = cam.latest()
+    size = f"{first.shape[1]}x{first.shape[0]}" if first is not None else "?"
+    print(f"static {kind} {device} ({size}, sent at <= {send_px} px) -> {url} at {fps} fps (Ctrl+C to stop)")
     sent = 0
     try:
         while not cam.ended:
@@ -96,8 +114,8 @@ def run(server, token, device=0, fps=1.0, show=False, loop=False):
                 time.sleep(0.1)
                 continue
             h, w = frame.shape[:2]
-            if max(h, w) > FRAME_PX:
-                s = FRAME_PX / max(h, w)
+            if max(h, w) > send_px:
+                s = send_px / max(h, w)
                 frame = cv2.resize(frame, (int(w * s), int(h * s)))
             ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
             req = urllib.request.Request(url, data=jpg.tobytes(), headers=headers, method="POST")

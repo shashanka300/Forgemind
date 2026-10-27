@@ -106,7 +106,7 @@ Without a key everything still runs on stand-ins (mock model, CLIP-tile detector
 | Command | Does |
 |---|---|
 | `forgemind serve [--zrok] [--mock]` | App server + phone page |
-| `forgemind static-cam --device 0\|url\|file.mp4 [--loop]` | Bench camera client (files replay at real speed) |
+| `forgemind static-cam --device 0\|url\|file.mp4 [--loop] [--send-px 2560]` | Bench camera client: webcams captured at 4K, sent at 2560 px; files replay at real speed |
 | `forgemind check` | Model API smoke test: models, tool call |
 | `forgemind agent-eval [--frames] [--model …]` | 15 scripted turns against the real model: tools, latency, cost |
 | `forgemind replay video.mp4 --camera static\|mobile` | Recorded video through perception + memory; entity contact sheet |
