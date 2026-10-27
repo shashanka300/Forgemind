@@ -274,7 +274,8 @@ class MetaApiSegmenter:
     name = "meta_sam"
     model = "sam-3.1"
 
-    def __init__(self, settings, http_client=None, timeout=30.0, max_px=1024, workers=4):
+    def __init__(self, settings, http_client=None, timeout=30.0, max_px=1024, workers=4,
+                 ledger=None):
         import httpx
         if not settings.meta_api_key:
             raise ValueError("FM_SEGMENTER=meta_sam needs MODEL_API_KEY in .env")
@@ -286,6 +287,7 @@ class MetaApiSegmenter:
         self.last_error = None
         self.last_ms = None
         self.images_billed = 0
+        self.ledger = ledger
 
     def _request(self, data_url, concept):
         body = {"model": self.model, "metadata": {"include_confidence": "true"},
@@ -306,6 +308,8 @@ class MetaApiSegmenter:
         concepts = list(concepts)
         t0 = time.perf_counter()
         try:
+            if self.ledger:
+                self.ledger.check()
             with ThreadPoolExecutor(max_workers=self.workers) as pool:
                 texts = list(pool.map(lambda c: self._request(data_url, c), concepts))
         except Exception as e:
@@ -314,6 +318,9 @@ class MetaApiSegmenter:
         self.last_error = None
         self.last_ms = round((time.perf_counter() - t0) * 1000)
         self.images_billed += len(concepts)
+        if self.ledger:
+            from forgemind.providers.budget import SAM_IMAGE_USD
+            self.ledger.add("sam", self.model, len(concepts), len(concepts) * SAM_IMAGE_USD)
         dets = []
         for concept, text in zip(concepts, texts):
             for rec in parse_sam_text(text):

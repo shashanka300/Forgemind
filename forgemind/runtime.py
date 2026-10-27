@@ -28,7 +28,11 @@ class Runtime:
         self.llm = llm or build_llm(settings)
         self.ctx = Context(settings, self.memory, self.perception, self.safety, self.hub, self.llm)
         self.agent = Agent(self.ctx)
-        self.asr = VoiceTranscribeRelay(settings)
+        from forgemind.providers import get_ledger
+        self.ledger = get_ledger(settings) if settings.meta_api_key else None
+        if self.ledger:
+            self.ledger.on_warn = lambda m: self.hub.push({"type": "budget", "text": m})
+        self.asr = VoiceTranscribeRelay(settings, ledger=self.ledger)
         self._stop = threading.Event()
 
     def describe(self):

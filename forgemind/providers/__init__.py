@@ -22,12 +22,25 @@ def build_segmenter(settings, embedder):
         return s.Sam3Segmenter(settings.sam_checkpoint, settings.sam_device,
                                settings.sam_min_score)
     if kind == "meta_sam":
-        return s.MetaApiSegmenter(settings)
+        return s.MetaApiSegmenter(settings, ledger=get_ledger(settings))
     if kind == "none":
         return s.NullSegmenter()
     if kind == "clip_grid":
         return s.ClipGridSegmenter(embedder)
     raise ValueError(f"unknown FM_SEGMENTER={kind}")
+
+
+_LEDGERS = {}
+
+
+def get_ledger(settings):
+    """One ledger per file (default ~/.forgemind/ledger.sqlite)."""
+    from forgemind.providers.budget import Ledger, default_path
+    path = str(settings.ledger_path or default_path())
+    if path not in _LEDGERS:
+        _LEDGERS[path] = Ledger(path, settings.budget_usd)
+    _LEDGERS[path].cap = settings.budget_usd
+    return _LEDGERS[path]
 
 
 def build_llm(settings):
@@ -47,9 +60,11 @@ def _build_llm(kind, settings):
     if kind == "meta":
         if not settings.meta_api_key:
             raise ValueError("FM_LLM_PROVIDER=meta needs MODEL_API_KEY in .env")
-        return OpenAICompatModel(settings.meta_base_url, settings.meta_api_key,
-                                 settings.agent_model, settings.worker_model, name="meta",
-                                 reasoning_effort=settings.reasoning_effort)
+        from forgemind.providers.budget import MeteredLLM
+        return MeteredLLM(OpenAICompatModel(settings.meta_base_url, settings.meta_api_key,
+                                            settings.agent_model, settings.worker_model,
+                                            name="meta", reasoning_effort=settings.reasoning_effort),
+                          get_ledger(settings))
     if kind == "compat":
         # reasoning_effort is a Muse setting; local servers (llama.cpp) may reject it.
         return OpenAICompatModel(settings.compat_base_url, settings.compat_api_key,

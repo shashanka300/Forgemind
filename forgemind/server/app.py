@@ -165,6 +165,8 @@ def create_app(rt):
         s = rt.memory.experiments.active()
         return {
             "providers": rt.describe(),
+            "spend": ({"usd": round(rt.ledger.total(), 2), "cap": rt.ledger.cap}
+                      if rt.ledger else None),
             "phone_zone": rt.perception.phone_zone.current(now),
             "user_away_s": round(rt.safety.user_away_for(now)),
             "session": rt.memory.experiments.state(s["id"]) if s else None,

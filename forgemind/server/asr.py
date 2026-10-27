@@ -44,10 +44,12 @@ async def default_connect(url):
 
 
 class VoiceTranscribeRelay:
-    def __init__(self, settings, connect=default_connect):
+    def __init__(self, settings, connect=default_connect, ledger=None):
         self.url = realtime_url(settings.meta_base_url)
         self.key = settings.meta_api_key
         self.connect = connect
+        self.ledger = ledger
+        self._bytes = 0
 
     @property
     def available(self):
@@ -64,6 +66,8 @@ class VoiceTranscribeRelay:
         `phone` is a Starlette WebSocket.
         """
         try:
+            if self.ledger:
+                self.ledger.check()
             upstream = await self.connect(self.url)
         except Exception as e:
             await phone.send_json({"type": "error", "text": f"transcriber unreachable: {e}"})
@@ -90,6 +94,14 @@ class VoiceTranscribeRelay:
                 await upstream.close()
             except Exception:
                 pass
+            self._bill()
+
+    def _bill(self):
+        """16 kHz 16-bit mono = 32,000 bytes per second; billed per whole second."""
+        secs, self._bytes = self._bytes // 32000, 0
+        if self.ledger and secs:
+            from forgemind.providers.budget import ASR_HOUR_USD
+            self.ledger.add("asr", MODEL, secs, secs / 3600 * ASR_HOUR_USD)
 
     async def _pump_audio(self, phone, upstream):
         while True:
@@ -98,6 +110,7 @@ class VoiceTranscribeRelay:
                 break
             if msg.get("bytes"):
                 await upstream.send(msg["bytes"])
+                self._bytes += len(msg["bytes"])
             elif msg.get("text") and json.loads(msg["text"]).get("type") == "end":
                 break
         await upstream.send(json.dumps({"type": "endStream"}))

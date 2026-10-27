@@ -59,6 +59,12 @@ def jpeg(img):
     return buf.getvalue()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_ledger(tmp_path, monkeypatch):
+    """Never write test calls into the real spend ledger (~/.forgemind)."""
+    monkeypatch.setenv("FM_LEDGER", str(tmp_path / "ledger.sqlite"))
+
+
 @pytest.fixture
 def settings(tmp_path):
     # Never use the developer's real key or providers from .env in tests.

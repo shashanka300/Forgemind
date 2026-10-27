@@ -286,6 +286,8 @@ function onPush(m) {
                                 {ttl: (m.ttl || 120) * 1000});
   } else if (m.type === "report") {
     card("", "Report ready", m.name, {html: `<a style="color:var(--amber)" href="${esc(m.url)}" target="_blank">Open report</a>`});
+  } else if (m.type === "budget") {
+    card("alert", "API budget", m.text);
   } else if (m.type === "say") {
     speak(m.text);
   }

@@ -214,6 +214,20 @@ def cmd_agent_eval(args):
     run(s, out=args.out, frames=args.frames)
 
 
+def cmd_spend(args):
+    from forgemind.config import Settings
+    from forgemind.providers import get_ledger
+    led = get_ledger(Settings.from_env())
+    if args.add is not None:
+        led.add("manual", None, 0, args.add, args.note)
+    s = led.summary()
+    print(f"API spend: ${s['total']:.2f} of ${s['cap']:.0f}  ({led.path})")
+    for k, v in s["by_kind"].items():
+        print(f"  {k:<7} {v['calls']:5d} calls  ${v['usd']:.4f}")
+    for d, u in s["by_day"].items():
+        print(f"  {d}  ${u:.4f}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="forgemind", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -272,6 +286,10 @@ def main(argv=None):
     p.add_argument("--frames", action="store_true", help="attach bench + phone frames like live use")
     p.add_argument("--out", help="JSON results path")
     p.set_defaults(fn=cmd_agent_eval)
+    p = sub.add_parser("spend", help="API spend so far against FM_BUDGET_USD")
+    p.add_argument("--add", type=float, help="record a manual amount (e.g. spend before the ledger)")
+    p.add_argument("--note", default="")
+    p.set_defaults(fn=cmd_spend)
     p = sub.add_parser("check", help="test the configured model API")
     p.set_defaults(fn=cmd_check)
     args = ap.parse_args(argv)

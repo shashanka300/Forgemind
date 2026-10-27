@@ -77,6 +77,8 @@ class Settings:
     teach_min_sim: float = 0.80
     confirm_new: bool = True
     notes: bool = True
+    budget_usd: float = 140.0
+    ledger_path: str = ""
     match_min_sim: float = 0.75
     confidence_half_life: float = 1800
     stale_confidence: float = 0.4
@@ -121,6 +123,8 @@ class Settings:
             teach_min_sim=float(_env("FM_TEACH_MIN_SIM", "0.80")),
             confirm_new=_bool("FM_CONFIRM_NEW", True),
             notes=_bool("FM_NOTES", True),
+            budget_usd=float(_env("FM_BUDGET_USD", "140")),
+            ledger_path=_env("FM_LEDGER"),
             match_min_sim=float(_env("FM_MATCH_MIN_SIM", "0.75")),
             confidence_half_life=float(_env("FM_CONFIDENCE_HALF_LIFE", "1800")),
             stale_confidence=float(_env("FM_STALE_CONFIDENCE", "0.4")),
