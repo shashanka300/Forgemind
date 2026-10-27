@@ -88,8 +88,9 @@ Where the build stands and what to do next. Update this at the end of each work 
    few bike-repair takes (downscaled) for a larger cross-camera test with real tools.
 5. **Glimmer server:** download the Q4 GGUF, serve with llama.cpp (`-c 32768`), point
    `FM_COMPAT_*` at it, confirm tool calls with `forgemind check`.
-6. **Day 3 remaining:** decide embedder from the real crop test; if DINO wins, add a
-   second (identity) vector to the registry; recalibrate thresholds; try teach on the
+6. **Day 3 remaining:** bench-region setting for the static camera (mask the RGB keyboard
+   strip; also keeps faces and off-bench things out of detection and API frames); tune
+   `FM_CONCEPTS` to the demo objects (add decoys like "stopwatch"); try teaching on the
    real phone over zrok. Then Day 4: `where_is` end to end.
 7. **Added from the personal health agent paper** (PRD §7.4, Nature 2026), scheduled in §13:
    - F-AGT-8 explicit `missing` / `stale` fields from tools (Day 6, P0)
