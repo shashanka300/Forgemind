@@ -16,6 +16,7 @@ theme *Push the Frontier*.
 |---|---|
 | [`docs/EVAL.md`](docs/EVAL.md) | Scorecard: the six acceptance checks, agent accuracy and latency, perception speed, identity precision, cost |
 | [`docs/DEMO.md`](docs/DEMO.md) | Demo script, setup checklist and shot list |
+| [`docs/SUBMISSION.md`](docs/SUBMISSION.md) | Draft text for the hackathon submission form |
 | [`docs/PRD.md`](docs/PRD.md) | Product spec, model split (§7.3), lessons from Google's personal health agent paper (§7.4) |
 | [`docs/META_INTEGRATION.md`](docs/META_INTEGRATION.md) | Each Meta model: setup, prices, status |
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | Build log, blockers, next steps |
