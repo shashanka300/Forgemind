@@ -226,7 +226,13 @@ class Perception:
         present = False
         occluders = [d.box for d in dets if d.concept in PRESENCE_CONCEPTS]
         candidates = []
-        for d in sorted(dets, key=lambda d: -d.score):
+        dets = sorted(dets, key=lambda d: -d.score)
+        # one batched embedding call for every object crop in the frame
+        objs = [d for d in dets if d.concept not in PRESENCE_CONCEPTS
+                and d.concept not in HAZARD_CONCEPTS] if not self.private else []
+        vecs = dict(zip(map(id, objs), self.emb.embed_images([self.crop(image, d.box)
+                                                              for d in objs]))) if objs else {}
+        for d in dets:
             item = {"concept": d.concept, "box": [round(b, 4) for b in d.box],
                     "score": round(d.score, 3)}
             if d.concept in PRESENCE_CONCEPTS:
@@ -241,7 +247,7 @@ class Perception:
                 if keyframe is None and camera == "mobile":
                     # make sure a first sighting/move has a picture to show
                     keyframe = self._save_keyframe(camera, image, ts, force=True)
-                vec = _unit(self.emb.embed_image(self.crop(image, d.box)))
+                vec = _unit(vecs[id(d)])
                 eid, _ = self.mem.registry.match(d.concept, vec, camera, zone, region, ts,
                                                  exclude=claimed)
                 if eid is None:
