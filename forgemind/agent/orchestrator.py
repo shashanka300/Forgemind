@@ -69,6 +69,17 @@ class Agent:
                 parts.append(image_part(item["image"], max_px=768, quality=75))
         return {"role": "user", "content": parts}
 
+    def _extract_notes(self, text):
+        """User notes (F-EXP-9) in the background: never delays the reply."""
+        mem, llm = self.ctx.memory, self.ctx.llm
+        if not getattr(self.ctx.settings, "notes", True):
+            return
+        s = mem.experiments.active()
+        t = threading.Thread(target=mem.notes.extract, args=(llm, text, s["id"] if s else None),
+                             daemon=True, name="notes")
+        t.start()
+        self.last_notes_thread = t          # tests join it
+
     def handle(self, text):
         t0 = time.perf_counter()
         with self._lock:
@@ -118,5 +129,6 @@ class Agent:
             if reply is None:
                 reply = trace[-1]["summary"] if trace else "Sorry, I got stuck on that."
             self._remember("assistant", reply)
+            self._extract_notes(text)
             return {"reply": reply, "trace": trace,
                     "ms": round((time.perf_counter() - t0) * 1000)}

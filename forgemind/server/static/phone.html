@@ -506,14 +506,20 @@ async function refresh() {
     renderSession(st);
   }
   const pane = document.querySelector("nav button.on").dataset.pane;
-  if (pane === "memory") renderMemory((await api("/api/entities")).entities);
+  if (pane === "memory") renderMemory((await api("/api/entities")).entities,
+                                      (await api("/api/notes").catch(() => ({notes: []}))).notes);
   if (pane === "events") renderEvents((await api("/api/events?limit=40")).events);
 }
 
-function renderMemory(list) {
+function renderMemory(list, notes = []) {
   const el = $("pane-memory");
-  if (!list.length) { el.innerHTML = `<div class="muted">Nothing remembered yet. Point a camera at your bench.</div>`; return; }
-  el.innerHTML = list.map(e => `
+  const notesHtml = notes.length ? `<div class="meta" style="margin:4px 0">What you told me</div>` + notes.map(n => `
+    <div class="row">
+      <div class="body"><div>${esc(n.text)}</div><div class="meta">${esc(n.kind)}</div></div>
+      <button class="ghost" data-forget-note="${n.id}">Forget</button>
+    </div>`).join("") : "";
+  if (!list.length && !notes.length) { el.innerHTML = `<div class="muted">Nothing remembered yet. Point a camera at your bench.</div>`; return; }
+  el.innerHTML = notesHtml + (list.length ? `<div class="meta" style="margin:8px 0 4px">Objects</div>` : "") + list.map(e => `
     <div class="row">
       ${e.keyframe ? `<img src="${esc(e.keyframe)}" alt="" loading="lazy">` : `<img alt="">`}
       <div class="body">
@@ -531,6 +537,9 @@ function renderMemory(list) {
   el.querySelectorAll("[data-forget]").forEach(b => b.onclick = async () => {
     if (!confirm("Forget this object?")) return;
     await api(`/api/entities/${b.dataset.forget}`, {method: "DELETE"}); refresh();
+  });
+  el.querySelectorAll("[data-forget-note]").forEach(b => b.onclick = async () => {
+    await api(`/api/notes/${b.dataset.forgetNote}`, {method: "DELETE"}); refresh();
   });
 }
 

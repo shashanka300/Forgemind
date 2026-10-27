@@ -225,6 +225,16 @@ def create_app(rt):
         rt.memory.registry.delete(eid)
         return {"ok": True}
 
+    @app.get("/api/notes")
+    def notes():
+        return {"notes": rt.memory.notes.recent(50)}
+
+    @app.delete("/api/notes/{nid}")
+    def forget_note(nid: int):
+        rt.memory.notes.forget(nid)
+        rt.memory.db.log_event("note_forgotten", "stated", {"id": nid})
+        return {"ok": True}
+
     @app.get("/api/events")
     def events(limit: int = 50):
         return {"events": rt.memory.db.recent_events(min(limit, 500))}

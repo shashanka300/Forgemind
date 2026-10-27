@@ -395,7 +395,11 @@ class ToolBox:
                 bits.append(f"Last measurement: {m['quantity']} = {m['value']:g} {m['unit'] or ''}.".replace(" .", "."))
         if st["missing"]:
             bits.append("Missing: " + "; ".join(st["missing"]) + ".")
-        return {"state": st, "missing": st["missing"], "summary": " ".join(bits)}
+        notes = [n for n in self.mem.notes.recent(20)
+                 if n["session_id"] == st["session"]["id"] and n["kind"] in ("goal", "obstacle")]
+        if notes:
+            bits.append("You mentioned: " + "; ".join(n["text"] for n in notes[:2]) + ".")
+        return {"state": st, "missing": st["missing"], "notes": notes, "summary": " ".join(bits)}
 
     def end_session(self, a: Empty):
         s = self.mem.experiments.end()

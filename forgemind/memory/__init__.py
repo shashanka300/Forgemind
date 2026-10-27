@@ -1,6 +1,7 @@
 """World memory facade: SQLite event store + visual index + registry + experiments."""
 from forgemind.memory.db import DB
 from forgemind.memory.experiments import Experiments
+from forgemind.memory.notes import Notes
 from forgemind.memory.registry import Registry
 from forgemind.memory.vectors import build_index
 
@@ -15,6 +16,7 @@ class WorldMemory:
         self.index = build_index(settings, embedder.dim)
         self.registry = Registry(self.db, self.index, embedder, settings)
         self.experiments = Experiments(self.db)
+        self.notes = Notes(self.db)
 
     @property
     def keyframes_dir(self):

@@ -6,6 +6,7 @@ narrative summary, but only from those facts and citing them, so a report
 never contains a number the system did not log.
 """
 import json
+import re
 import time
 from datetime import datetime
 
@@ -44,7 +45,94 @@ def build_facts(experiments, sid):
     }
 
 
-def render(facts, narrative=None):
+# -- citation check (PRD F-OUT-5) ----------------------------------------------
+
+_NUM = re.compile(r"(?<![\w.])[-+]?\d+(?:\.\d+)?")
+_CITE = re.compile(r"\[E(\d+)\]")
+
+
+def _numbers(text):
+    return {float(n) for n in _NUM.findall(str(text or ""))}
+
+
+def fact_index(facts):
+    """E-id -> the numbers that fact contains (values, step text, times)."""
+    idx = {}
+    for group in ("config", "steps", "measurements"):
+        for f in facts.get(group, []):
+            nums = set()
+            for k, v in f.items():
+                if k != "event":
+                    nums |= _numbers(v)
+            idx[f["event"]] = nums
+    return idx
+
+
+def _derived(facts):
+    """Counts a summary may state without a citation (\"2 of 3 steps\")."""
+    steps = facts.get("steps", [])
+    by = {}
+    for st in steps:
+        by[st["status"]] = by.get(st["status"], 0) + 1
+    return {float(x) for x in (len(steps), len(facts.get("measurements", [])),
+                               len(facts.get("config", [])), *by.values())}
+
+
+def check_citations(text, facts):
+    """Per sentence: cited ids must exist; every number must be in a cited fact.
+
+    Returns (sentences, problems) where problems is a list of
+    (sentence index, reason). Numbers that are only counts of steps,
+    measurements or settings are allowed without a citation.
+    """
+    idx, derived = fact_index(facts), _derived(facts)
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if s]
+    problems = []
+    for i, s in enumerate(sentences):
+        cites = [f"E{n}" for n in _CITE.findall(s)]
+        unknown = [c for c in cites if c not in idx]
+        if unknown:
+            problems.append((i, f"cites {', '.join(unknown)}, which are not in the facts"))
+            continue
+        allowed = set().union(*(idx[c] for c in cites)) if cites else set()
+        bare = _CITE.sub(" ", s)
+        for n in sorted(_numbers(bare)):
+            if n in allowed or (n in derived and n == int(n)):
+                continue
+            where = f"[{', '.join(cites)}]" if cites else "no citation"
+            problems.append((i, f"states {n:g}, which is not in {where}"))
+            break
+    return sentences, problems
+
+
+FIX_PROMPT = """Your summary failed the citation check:
+{problems}
+Rewrite the summary. Every number must come from the fact you cite next to it,
+and only cite ids that exist in the JSON. If a value is missing, say it is missing."""
+
+
+def checked_narrative(llm, facts, draft):
+    """Check the draft; one rewrite if needed; then drop sentences that still fail."""
+    sentences, problems = check_citations(draft, facts)
+    if problems:
+        listing = "\n".join(f"- \"{sentences[i]}\": {why}" for i, why in problems)
+        res = llm.chat([{"role": "system", "content": NARRATIVE_PROMPT},
+                        {"role": "user", "content": json.dumps(facts, default=str)},
+                        {"role": "assistant", "content": draft},
+                        {"role": "user", "content": FIX_PROMPT.format(problems=listing)}],
+                       model=llm.model_for("worker"))
+        draft = res.content or ""
+        sentences, problems = check_citations(draft, facts)
+    bad = {i for i, _ in problems}
+    kept = " ".join(s for i, s in enumerate(sentences) if i not in bad)
+    note = None
+    if bad:
+        note = (f"_{len(bad)} sentence{'s' * (len(bad) > 1)} removed from this summary: "
+                "stated values that are not in the cited records._")
+    return kept, note, [why for _, why in problems]
+
+
+def render(facts, narrative=None, note=None):
     s = facts["session"]
     L = [f"# Experiment report: {s['name']}", "",
          f"*Generated {_t(time.time())} by ForgeMind. Started {s['started']}, "
@@ -52,6 +140,8 @@ def render(facts, narrative=None):
     L += ["## Objective", "", s["objective"] or "_Not stated._", ""]
     if narrative:
         L += ["## Summary", "", narrative.strip(), ""]
+    if note:
+        L += [note, ""]
     L += ["## Configuration", ""]
     if facts["config"]:
         L += ["| Setting | Value | Ref |", "|---|---|---|"]
@@ -102,18 +192,18 @@ def render(facts, narrative=None):
 
 def generate(experiments, llm, sid, out_dir, use_model=True):
     facts = build_facts(experiments, sid)
-    narrative = None
+    narrative, note, problems = None, None, []
     if use_model and getattr(llm, "name", "mock") != "mock":
         try:
             res = llm.chat([{"role": "system", "content": NARRATIVE_PROMPT},
                             {"role": "user", "content": json.dumps(facts, default=str)}],
                            model=llm.model_for("worker"))
-            narrative = res.content
+            narrative, note, problems = checked_narrative(llm, facts, res.content or "")
         except Exception as e:  # the deterministic report still stands
             narrative = f"_Summary unavailable: {e}_"
-    md = render(facts, narrative)
+    md = render(facts, narrative, note)
     slug = "".join(c if c.isalnum() else "-" for c in facts["session"]["name"].lower()).strip("-")
     name = f"{slug or 'session'}-{sid}.md"
     (out_dir / name).write_text(md)
     return {"path": str(out_dir / name), "url": f"/reports/{name}", "markdown": md,
-            "facts": facts, "generated": fmt_ago(0)}
+            "facts": facts, "generated": fmt_ago(0), "citation_problems": problems}

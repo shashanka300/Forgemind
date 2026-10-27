@@ -74,6 +74,10 @@ def situation(ctx):
                       "look_done": f"user looked at {pl.get('target')}",
                       "phone_zone": f"phone entered {pl.get('zone')}"}.get(e["type"], e["type"])
             L.append(f"- {fmt_ago(now - e['ts'])}: {detail} [{e['source']}{', ' + e['camera'] if e['camera'] else ''}]")
+    notes = mem.notes.recent(6)
+    if notes:
+        L.append("What the user told you before (notes): " + "; ".join(
+            f"{n['kind']}: {n['text']}" for n in notes))
     known = mem.registry.list(15)
     if known:
         L.append("Known objects: " + "; ".join(

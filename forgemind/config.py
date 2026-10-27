@@ -76,6 +76,7 @@ class Settings:
 
     teach_min_sim: float = 0.80
     confirm_new: bool = True
+    notes: bool = True
     match_min_sim: float = 0.75
     confidence_half_life: float = 1800
     stale_confidence: float = 0.4
@@ -119,6 +120,7 @@ class Settings:
             unattended_seconds=float(_env("FM_UNATTENDED_SECONDS", "60")),
             teach_min_sim=float(_env("FM_TEACH_MIN_SIM", "0.80")),
             confirm_new=_bool("FM_CONFIRM_NEW", True),
+            notes=_bool("FM_NOTES", True),
             match_min_sim=float(_env("FM_MATCH_MIN_SIM", "0.75")),
             confidence_half_life=float(_env("FM_CONFIDENCE_HALF_LIFE", "1800")),
             stale_confidence=float(_env("FM_STALE_CONFIDENCE", "0.4")),
