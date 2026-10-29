@@ -2,7 +2,7 @@
 
 Where the build stands and what to do next. Update this at the end of each work session.
 
-**Last updated:** Oct 28, 2026 (Days 9–10 prep done; waiting on the user's hardware). **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
+**Last updated:** Oct 29, 2026 (bench webcam live and lit; memory reset; waiting on the phone: zrok, teaching). **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
 **Branch:** `main`. Check `git status -sb` for unpushed commits.
 
 ## Status
@@ -38,7 +38,7 @@ Where the build stands and what to do next. Update this at the end of each work 
    `FM_LLM_PROVIDER=meta`, `FM_AGENT_MODEL=muse-spark-1.3`, `FM_SEGMENTER=sam3`.
 3. **Bench lighting (user).** The bench camera is the user's 4K webcam (device 0, DirectShow,
    sent at 2560 px). It works live (Oct 28: pliers and headphones detected), but the room is
-   too dark for SAM to see the boards. **Lit on Oct 29**: live run finds 5 boards, copper wire, pliers, headphones, mouse; the wire cutters need teaching. Fixed: a still scene never confirmed a new object (gate skipped the confirming frame). Reset memory before the demo (old dark-room entities duplicate). After that, re-run
+   too dark for SAM to see the boards. **Lit on Oct 29**: live run finds 5 boards, copper wire, pliers, headphones, mouse; the wire cutters need teaching. Fixed: a still scene never confirmed a new object (gate skipped the confirming frame). Memory reset on Oct 29: old dev memory moved to `forgemind-data-dev.bak-20261029-2001` (git-ignored; delete when not needed). **Model weights (SAM, PE, 3.1 GB) are cached in `<data dir>/models`**: never move or wipe that folder when resetting memory, only `forgemind.sqlite*`, `visual`, `keyframes`, `reports`. Dev server (preview `forgemind`) uses `forgemind-data-dev`, `--mock` LLM. After that, re-run
    `bench-region` (only the keyboard is masked now, `FM_BENCH_MASK=[[0.205,0.571,0.793,0.911]]`;
    don't mask the white laptop the boards sit on), then a live run: `forgemind serve` +
    `forgemind static-cam --device 0 --token <t>` + phone.
