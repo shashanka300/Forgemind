@@ -207,7 +207,10 @@ class Perception:
             zone = self.s.static_zone
             changed = self.gate.changed(image)
             stale = ts - self.last_processed.get(camera, 0) >= STATIC_FORCE_EVERY_S
-            if not (changed or stale or force):
+            # a new object waiting for its second sighting: look again even if
+            # nothing changed, or a still scene never confirms it
+            confirming = bool(self.pending.get(camera))
+            if not (changed or stale or force or confirming):
                 prev = self.latest.get(camera, {})
                 for d in prev.get("detections", []):   # unchanged scene: still there
                     if d.get("kind") in ("object", "hazard"):

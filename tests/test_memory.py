@@ -117,6 +117,18 @@ def test_new_object_needs_two_frames_when_confirming(rt):
     assert [e["concept"] for e in rt.memory.registry.list()] == ["multimeter"]
 
 
+def test_still_scene_still_confirms_new_object(rt):
+    # the second, identical frame would be gate-skipped; a pending candidate
+    # must still be looked at again or it never becomes an entity
+    rt.settings.confirm_new = True
+    img = scene([("multimeter", .45, .4, .6, .6)])
+    rt.perception.process("static", img, ts=1000.0)
+    second = rt.perception.process("static", img, ts=1001.0)
+    assert not second.get("skipped")
+    assert events_of(second) == [("appeared", "multimeter")]
+    assert rt.perception.process("static", img, ts=1002.0).get("skipped")
+
+
 def test_held_object_never_creates_entity_on_bench(rt):
     # yellow "person" block (a hand/arm) covers most of the hex key
     img = scene([("person", .38, .38, .60, .60), ("hex key", .40, .40, .50, .50)])

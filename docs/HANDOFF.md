@@ -38,7 +38,7 @@ Where the build stands and what to do next. Update this at the end of each work 
    `FM_LLM_PROVIDER=meta`, `FM_AGENT_MODEL=muse-spark-1.3`, `FM_SEGMENTER=sam3`.
 3. **Bench lighting (user).** The bench camera is the user's 4K webcam (device 0, DirectShow,
    sent at 2560 px). It works live (Oct 28: pliers and headphones detected), but the room is
-   too dark for SAM to see the boards. Needs a white desk lamp. After that, re-run
+   too dark for SAM to see the boards. **Lit on Oct 29**: live run finds 5 boards, copper wire, pliers, headphones, mouse; the wire cutters need teaching. Fixed: a still scene never confirmed a new object (gate skipped the confirming frame). Reset memory before the demo (old dark-room entities duplicate). After that, re-run
    `bench-region` (only the keyboard is masked now, `FM_BENCH_MASK=[[0.205,0.571,0.793,0.911]]`;
    don't mask the white laptop the boards sit on), then a live run: `forgemind serve` +
    `forgemind static-cam --device 0 --token <t>` + phone.
@@ -117,7 +117,7 @@ Where the build stands and what to do next. Update this at the end of each work 
      frame are now discarded; one label per object (cross-concept IoU ≥ 0.7 keeps the higher).
    - "lcd display"/"lcd screen" hit monitors and meter screens, not LCD modules; "circuit
      board" finds the modules (0.94–0.97). "wall charger" finds the cube charger (0.57),
-     "copper coil" the coil (0.63). "sponge" (iron-stand sponge) is reliable (0.66–0.82).
+     "copper coil" the coil (0.63); on the lit webcam bench "copper wire" works better (0.83, only the coil), now in `FM_CONCEPTS`. "sponge" (iron-stand sponge) is reliable (0.66–0.82).
    - Each concept costs ~37 ms/frame (14 concepts ≈ 780 ms on the 5090).
    Remaining: try teaching on the real phone over zrok. Then Day 4: `where_is` end to end.
    Note: "covered isn't missing" can delay a real "gone" while hands stay nearby; revisit if
