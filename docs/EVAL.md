@@ -57,6 +57,22 @@ background and undone with a spoken correction if it disagrees.
 | Through the server | "where are my headphones?" answered in 175 ms over HTTP | `/api/chat` |
 | Decision model cost | 1.7 GB VRAM, ~16-20 ms per decision, no API spend | |
 
+### Spoken turns end to end (real Voice Transcribe, hands-free)
+
+`eval/voice_latency.py` speaks a question (Windows speech synthesis), streams it like the
+phone (16 kHz, real time) and times each message from the last audible sample:
+
+| Stage | Time |
+|---|---|
+| Transcriber's end of turn after the user stops | **390-1,040 ms** (median ~590 ms) |
+| End of turn -> answer, fast path, server-answered turns | **6-260 ms** (6-30 ms when the last partial was prefetched) |
+| End of turn -> answer, phone posts to /api/chat (old path) | 50-230 ms on localhost; plus the zrok round trip from a real phone |
+| **Last word -> answer, fast-path question** | **~0.6-1.0 s** (was ~2.8 s with Spark) |
+
+The remaining wait is the transcriber's end-of-speech detection. Answering before it isn't
+possible: the last word's partial arrives ~640 ms after the user stops, ~70 ms before the
+end of turn, so there is never a complete partial to answer from early (tried and removed).
+
 ## Simulated users (PRD §15.1)
 
 `forgemind sim-users`: Muse Glimmer (local, free) plays a person with a goal in their own

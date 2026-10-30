@@ -176,3 +176,20 @@ def test_end_session_only_when_named(rt, text, fast):
 ])
 def test_parse_measurement(text, want):
     assert parse_measurement(text) == want
+
+
+def test_prefetched_decision_is_reused_for_the_final_transcript(rt):
+    rt.perception.process("static", scene([("hex key", .4, .4, .5, .5)]), ts=time.time() - 5)
+    calls = []
+
+    class Counting(StubLaya):
+        def predict(self, text, questions):
+            calls.append(text)
+            return super().predict(text, questions)
+    agent = fast_agent(rt, {})
+    agent.system1.backend = Counting({"where is my hex key": ("where_is", 0.99, 0.01),
+                                      "Where is my hex key?": ("where_is", 0.99, 0.01)})
+    agent.system1.prefetch("where is my hex key")
+    n = len(calls)
+    out = agent.handle("Where is my hex key?")
+    assert out["fast"] and len(calls) == n and agent.system1.prefetched

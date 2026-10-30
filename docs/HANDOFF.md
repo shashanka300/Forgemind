@@ -95,8 +95,15 @@ Tests: `tests/test_system1.py` (stub Laya).
 confused boundaries (`eval/gen_confusions.py`; prompts checked to contain no test phrasings)
 -> hand-written test top-1 0.98, 0 wrong fast actions at any cut-off; agent-eval 15/15 with
 7 fast turns, median 1.35 s, max 2.6 s, $0.037. end_session is fast only when the session is
-named (a goodbye was fast-ended and then undone). Not done: deciding on partial transcripts
-while the user is still talking; real phone test. Round 1 checkpoint kept at
+named (a goodbye was fast-ended and then undone).
+**Voice path (Oct 30):** hands-free phones open `/ws/asr?mode=hands_free&server_turns=1`;
+the relay (`TurnHooks`) prefetches a System 1 decision on every partial transcript and
+answers each turn on the server, pushing `turn` (show + spoken ack) then `reply` to the
+phone instead of the phone posting to /api/chat. Measured with `eval/voice_latency.py`
+(real Voice Transcribe, synthetic speech): last word -> fast answer ~0.6-1.0 s, of which
+~0.4-1.0 s is the transcriber's end-of-turn detection. An "early answer" before end of turn
+was built and removed: the last word's partial only arrives ~70 ms before end of turn.
+Not done: real phone test (zrok). Round 1 checkpoint kept at
 `F:/models/laya-forgemind` for comparison.
 
 ## Next steps (in order)

@@ -12,6 +12,7 @@ undone with a spoken correction if Spark disagrees; `undo` here reverses each on
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 
 # Tools whose arguments can be filled without generating text. The rest
@@ -119,6 +120,15 @@ _NAMES_SESSION = re.compile(r"\b(?:session|experiment|job|run|test)\b", re.I)
 _SECONDS = re.compile(r"(\d+)\s*(seconds?|secs?|minutes?|mins?)\b", re.I)
 
 
+# A decision made on a partial transcript is reused for this long: memory (objects,
+# sessions) can change after that.
+PREFETCH_TTL_S = 10.0
+
+
+def _norm(text):
+    return " ".join(re.sub(r"[^a-z0-9.' ]", " ", text.lower()).split())
+
+
 class System1:
     def __init__(self, settings, memory, backend=None):
         self.s, self.mem = settings, memory
@@ -126,6 +136,7 @@ class System1:
         self.min_conf = settings.system1_min_conf
         self._lock = threading.Lock()
         self.loading = False
+        self._cache = {}                     # normalised text -> (ts, FastAction | None, reason, decision)
 
     def _predict(self, text, questions):
         with self._lock:
@@ -157,8 +168,34 @@ class System1:
         choice, conf = self._choose(text, "Which object is the user talking about?", crit)
         return choice if choice != OTHER and conf >= ARG_MIN_CONF else None
 
+    def prefetch(self, text):
+        """Decide on a partial transcript while the user is still talking.
+
+        The final transcript usually equals the last partial; `decide` then reuses this
+        result instead of running the model again.
+        """
+        if self.loading or not text.strip():
+            return
+        key = _norm(text)
+        if key in self._cache:
+            return
+        act = self._decide(text)
+        self._cache[key] = (time.time(), act, self.last_reason, getattr(self, "last_decision", None))
+        if len(self._cache) > 64:
+            for k in sorted(self._cache, key=lambda k: self._cache[k][0])[:32]:
+                self._cache.pop(k, None)
+
     def decide(self, text):
         """FastAction, or None (with self.last_reason) when Spark should take the turn."""
+        hit = self._cache.pop(_norm(text), None)
+        if hit and time.time() - hit[0] < PREFETCH_TTL_S:
+            _, act, self.last_reason, self.last_decision = hit
+            self.prefetched = True
+            return act
+        self.prefetched = False
+        return self._decide(text)
+
+    def _decide(self, text):
         from forgemind.agent.orchestrator import is_compound
         self.last_reason = None
         if self.loading:                      # still loading at startup: Spark takes the turn

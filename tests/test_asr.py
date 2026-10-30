@@ -121,3 +121,23 @@ def test_hands_free_forwards_each_turn(rt):
                    {"type": "turn", "text": "where is the multimeter"},
                    {"type": "turn", "text": "thanks"}]                  # empty turn dropped
     assert up.sent[0]["mode"] == "ENDPOINTING"
+
+
+def test_server_turns_answer_on_the_server_and_prefetch_partials(rt):
+    seen = []
+    rt.agent.prefetch = seen.append
+    rt.agent.handle = lambda text: {"reply": f"answer to {text}", "trace": []}
+    up = FakeEndpointing()
+    with _client(rt, up) as c:
+        with c.websocket_connect("/ws/asr?t=secret-token&mode=hands_free&server_turns=1") as ws:
+            ws.receive_json()                                            # ready
+            for _ in range(4):
+                ws.send_bytes(b"\x00\x00" * 1600)
+            got = [ws.receive_json() for _ in range(6)]
+            ws.send_text(json.dumps({"type": "end"}))
+    assert seen == ["where is"]                                        # decided while talking
+    turns = [m for m in got if m["type"] in ("turn", "reply")]
+    assert {"type": "turn", "text": "where is the multimeter", "server": True} in turns
+    assert {"type": "reply", "text": "where is the multimeter",
+            "reply": "answer to where is the multimeter", "trace": []} in turns
+    assert {"type": "reply", "text": "thanks", "reply": "answer to thanks", "trace": []} in turns

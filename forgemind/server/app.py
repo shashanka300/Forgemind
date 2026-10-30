@@ -302,8 +302,14 @@ def create_app(rt):
             await socket.close()
             return
         hands_free = socket.query_params.get("mode") == "hands_free"
+        hooks = None
+        if hands_free and socket.query_params.get("server_turns") == "1":
+            from forgemind.server.asr import TurnHooks
+            hooks = TurnHooks(partial=rt.agent.prefetch,
+                              turn=lambda text: run_in_threadpool(rt.agent.handle, text))
         try:
-            await rt.asr.run(socket, hands_free)   # the phone sends each turn to /api/chat
+            # without hooks the phone sends each turn to /api/chat itself
+            await rt.asr.run(socket, hands_free, hooks)
         except WebSocketDisconnect:
             pass
         finally:

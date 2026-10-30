@@ -20,13 +20,30 @@ mode: the transcriber decides when the user has finished a sentence, and each
 completed turn reaches the phone as {"type": "turn", "text": ...} (plus
 "speech_start" when they begin talking). The phone keeps streaming, sending
 silence while it speaks itself so the transcriber never hears the assistant.
+
+With `TurnHooks` (the phone opens ?mode=hands_free&server_turns=1) the server answers
+each turn itself instead of the phone posting it to /api/chat, saving a round trip:
+    <- {"type": "turn", "text": ..., "server": true}   (show it, speak the acknowledgement)
+    <- {"type": "reply", "text": ..., "reply": ..., "trace": [...]}
+Partial transcripts are decided on while the user talks (System 1 prefetch), so a
+fast-path answer is ready a few ms after the end of turn. Answering before the end of
+turn doesn't work: the transcriber sends the last word only ~70 ms before it (measured
+with eval/voice_latency.py), ~0.6 s after the user stops.
 """
 import asyncio
 import json
+from dataclasses import dataclass
+from typing import Awaitable, Callable, Optional
 
 MODEL = "muse-voice-transcribe-1.0"
 ACK_TIMEOUT = 10.0
 FINAL_TIMEOUT = 15.0
+
+
+@dataclass
+class TurnHooks:
+    partial: Optional[Callable[[str], None]] = None          # quick; schedules work
+    turn: Optional[Callable[[str], Awaitable[dict]]] = None  # the agent's answer
 
 
 def realtime_url(base_url):
@@ -60,7 +77,7 @@ class VoiceTranscribeRelay:
                 "model": MODEL, "audioEncoding": "PCM_16KHZ", "mode": mode,
                 "partialMode": "CUMULATIVE", "emitAudioProgress": False}
 
-    async def run(self, phone, hands_free=False):
+    async def run(self, phone, hands_free=False, hooks=None):
         """Relay one push-to-talk utterance, or a hands-free session of many turns.
 
         `phone` is a Starlette WebSocket.
@@ -81,7 +98,7 @@ class VoiceTranscribeRelay:
             await phone.send_json({"type": "ready", "hands_free": hands_free})
             pump = asyncio.create_task(self._pump_audio(phone, upstream))
             if hands_free:
-                await self._read_turns(phone, upstream, pump)
+                await self._read_turns(phone, upstream, pump, hooks)
                 return None
             final = await self._read_transcripts(phone, upstream, pump)
             await phone.send_json({"type": "final", "text": final})
@@ -115,8 +132,9 @@ class VoiceTranscribeRelay:
                 break
         await upstream.send(json.dumps({"type": "endStream"}))
 
-    async def _read_turns(self, phone, upstream, pump):
-        """Hands-free: forward every completed turn until either side stops."""
+    async def _read_turns(self, phone, upstream, pump, hooks=None):
+        """Hands-free: forward (or, with hooks, answer) every completed turn."""
+        last_partial, tasks = "", set()
         try:
             while True:
                 timeout = FINAL_TIMEOUT if pump.done() else None
@@ -130,10 +148,19 @@ class VoiceTranscribeRelay:
                 if kind == "speechStart":
                     await phone.send_json({"type": "speech_start"})
                 elif kind == "transcript" and not m.get("final"):
-                    await phone.send_json({"type": "partial", "text": m.get("transcript") or ""})
+                    text = m.get("transcript") or ""
+                    await phone.send_json({"type": "partial", "text": text})
+                    if text != last_partial and hooks and hooks.partial:
+                        hooks.partial(text)
+                    last_partial = text
                 elif kind == "speechComplete":
                     text = (m.get("transcript") or "").strip()
-                    if text:
+                    last_partial = ""
+                    if not text:
+                        continue
+                    if hooks and hooks.turn:
+                        await self._serve_turn(phone, text, hooks, tasks)
+                    else:
                         await phone.send_json({"type": "turn", "text": text})
         except asyncio.TimeoutError:
             return
@@ -143,6 +170,22 @@ class VoiceTranscribeRelay:
             raise
         finally:
             pump.cancel()
+
+    async def _serve_turn(self, phone, text, hooks, tasks):
+        await phone.send_json({"type": "turn", "text": text, "server": True})
+
+        async def answer():
+            try:
+                r = await hooks.turn(text)
+            except Exception as e:
+                r = {"reply": f"Something went wrong talking to the model: {e}", "trace": []}
+            try:
+                await phone.send_json({"type": "reply", "text": text, **r})
+            except Exception:
+                pass                      # phone went away
+        t = asyncio.create_task(answer())
+        tasks.add(t)
+        t.add_done_callback(tasks.discard)
 
     async def _read_transcripts(self, phone, upstream, pump):
         latest = ""

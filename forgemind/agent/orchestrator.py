@@ -70,6 +70,7 @@ class Agent:
         self._lock = threading.Lock()
         self.system1 = System1(ctx.settings, ctx.memory) if ctx.settings.system1 else None
         self.last_verify_thread = None
+        self._pf_lock, self._pf_next, self._pf_busy = threading.Lock(), None, False
 
     def _history(self):
         rows = self.ctx.memory.db.all(
@@ -103,6 +104,31 @@ class Agent:
                              daemon=True, name="notes")
         t.start()
         self.last_notes_thread = t          # tests join it
+
+    # -- while the user is still talking ---------------------------------------
+
+    def prefetch(self, text):
+        """Decide on a partial transcript in the background; only the newest one counts."""
+        if not self.system1 or self.system1.loading:
+            return
+        with self._pf_lock:
+            self._pf_next = text
+            if self._pf_busy:
+                return
+            self._pf_busy = True
+        threading.Thread(target=self._prefetch_loop, daemon=True, name="system1-prefetch").start()
+
+    def _prefetch_loop(self):
+        while True:
+            with self._pf_lock:
+                text, self._pf_next = self._pf_next, None
+                if text is None:
+                    self._pf_busy = False
+                    return
+            try:
+                self.system1.prefetch(text)
+            except Exception:
+                pass                     # the turn itself will decide again
 
     # -- System 1 fast path ----------------------------------------------------
 
