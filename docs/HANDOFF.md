@@ -2,7 +2,8 @@
 
 Where the build stands and what to do next. Update this at the end of each work session.
 
-**Last updated:** Oct 29, 2026 (bench webcam live and lit; memory reset; waiting on the phone: zrok, teaching). **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
+**Last updated:** Oct 30, 2026 (System 1 fast path with fine-tuned Laya, server-answered voice turns,
+Kokoro voice "am_michael"; all on in `.env`, 110 tests pass). Waiting on the user for the real phone test. **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
 **Branch:** `main`. Check `git status -sb` for unpushed commits.
 
 ## Status
@@ -42,6 +43,27 @@ Where the build stands and what to do next. Update this at the end of each work 
    `bench-region` (only the keyboard is masked now, `FM_BENCH_MASK=[[0.205,0.571,0.793,0.911]]`;
    don't mask the white laptop the boards sit on), then a live run: `forgemind serve` +
    `forgemind static-cam --device 0 --token <t>` + phone.
+
+## Where to pick up (Oct 30, end of session)
+
+Nothing left to build before the real phone test; everything below needs the user:
+1. `zrok enable` (one-time), then `forgemind serve --zrok` and open the printed link on the phone.
+2. On the phone: Start camera, Hands-free; check the Michael voice plays (first tap unlocks
+   audio) and the mic goes quiet while it talks. If audio fails the phone falls back to its
+   own voice: look at `/api/tts` responses and the browser console.
+3. Teach the soldering iron, multimeter and wire cutters (SAM can't name them).
+4. `forgemind static-cam --device 0 --token <t>` with the desk lamp on; start the bench
+   watch; run the demo script (`docs/DEMO.md`) and time a few spoken where-is questions
+   (expect ~0.6-1.0 s after the last word for fast-path answers).
+5. Print zone tags (`forgemind tags`), record "yesterday's" session, film, submit
+   (`docs/SUBMISSION.md`; check the official rules first).
+Optional if time allows: `forgemind sim-users` with System 1 on; a third Laya data round if
+the phone test shows new confusions (`eval/gen_confusions.py`, retrain with
+`eval/system1_train.py`, compare with `eval/system1_eval.py` before switching `.env`).
+
+Running state: nothing is running (dev server, Glimmer and Laya all stopped). Models on
+disk: `F:/models/laya-forgemind-r2` (in use), `F:/models/laya-forgemind` (round 1),
+Kokoro + spaCy model in the HF cache / venv. API spend: ~$1.33 of the $150 cap.
 
 ## Decision-model redesign (Oct 30)
 
@@ -254,6 +276,17 @@ calibration) runs on local models: SAM 3.1, Glimmer, embedders.
 - The SAM 3.1 API bills one image per concept per frame: never point `meta_sam` at the
   continuous camera stream (~$54/h at 12 concepts, one frame every 2 s).
 - Contributor mode on Spark trains Meta's models on our bench frames: keep it off.
+
+- Patching Python files from bash heredocs turns `\b` into a backspace character (it broke
+  regexes in `agent/system1.py` twice). Patch with the Edit tool or a script file, then check
+  for `\x08` in the file.
+- System 1 needs `USE_TF=0` (transformers otherwise probes TensorFlow); `.env` sets it.
+- Test settings pin `system1=""`; with `FM_SYSTEM1` in `.env` the tests would load Laya.
+- Laya's calibrated confidences top out ~0.97-0.98: keep the cut-off fine-grained (0.96).
+- `agent-eval` worlds live in `%TEMP%/fm-eval-*` (events `system1`, `system1_check` show
+  fast decisions and Spark's background verdicts).
+- The voice: `Speaker.ready` only after the warm-up sentence; the phone re-reads
+  `providers.tts` on each refresh because the voice loads after the page.
 
 ## Key docs
 
