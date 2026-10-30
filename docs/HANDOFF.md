@@ -43,7 +43,7 @@ Where the build stands and what to do next. Update this at the end of each work 
    don't mask the white laptop the boards sit on), then a live run: `forgemind serve` +
    `forgemind static-cam --device 0 --token <t>` + phone.
 
-## Decision-model redesign (Oct 30, in progress)
+## Decision-model redesign (Oct 30)
 
 Idea: a local "System 1" decision model picks the tool (and object/step/zone) in ~30 ms;
 Muse Spark (System 2) only for open-ended, compound or uncertain turns. Target: single-tool
@@ -78,6 +78,21 @@ questions about a value labelled log_measurement); 10% kept as validation
 - calibrated confidences top out ~0.97, so T must be fine-grained
 Not yet done: argument filling (object choice works zero-shot 11/12; numbers by regex),
 runtime integration, targeted data for the confusions (highlight vs go_look_at, "R1 is X").
+
+**Step 2 (fast path in the runtime) done, on in `.env` (`FM_SYSTEM1`).**
+`forgemind/agent/system1.py`: Laya picks the tool; fast only for where_is, highlight,
+resume_session, read_closeup, end_session, watch_bench, log_measurement, at conf >= 0.96,
+two-actions < 0.5, and never when `is_compound`. Arguments: object = Laya choice over objects
+in memory (+ "something else" -> Spark); session = word match on names, else most recent;
+measurement = exactly one number with a unit (questions excluded). The orchestrator speaks
+the tool's summary; for writes (measurement, end, watch) Spark re-decides in a background
+thread: same call -> nothing; same + more (a missed request) -> runs the extra calls and
+says "Also: ..."; different -> `undo` + Spark's calls + "Correction: ...". Laya loads in the
+background at server start; turns during loading go to Spark. agent-eval: 15/15, 5 fast
+turns at 31-53 ms, median 1.27 s (from 2.2 s), $0.055; both background checks agreed.
+Tests: `tests/test_system1.py` (stub Laya). Not done: a second data round for the known
+confusions (highlight vs go_look_at, "R1 is X", smoke), deciding on partial transcripts
+while the user is still talking, real phone test.
 
 ## Next steps (in order)
 
