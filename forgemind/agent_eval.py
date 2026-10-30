@@ -30,7 +30,8 @@ SCRIPT = [
     ("start a session called voltage divider test", [{"start_session"}]),
     ("the steps are: wire the divider, measure the output, swap R2 for 22k", [{"plan_steps"}]),
     ("okay, I wired the divider", [{"log_step"}]),
-    ("I measured 3.3 volts on the output", [{"log_measurement", "log_step"}]),
+    # the measurement ticks off its planned step in code, so log_step alone is optional
+    ("I measured 3.3 volts on the output", [{"log_measurement", "log_step"}, {"log_measurement"}]),
     ("set R2 to 10k", [{"set_config"}]),
     ("just checking the probe, don't log that", [{"log_step"}]),
     ("what's on the bench right now?", [{"inspect_scene"}]),
@@ -141,6 +142,8 @@ def cost(calls):
 
 def run(settings, out=None, log=print, script=SCRIPT, frames=False):
     rt, llm = build_world(settings, frames)
+    if rt.agent.system1:
+        rt.agent.system1.warm_up()           # load time isn't a turn's latency
     rows = []
     try:
         for text, expected in script:
@@ -152,15 +155,18 @@ def run(settings, out=None, log=print, script=SCRIPT, frames=False):
                     item["ts"] = t
             r = rt.agent.handle(text)
             ms = round((time.perf_counter() - t0) * 1000)
+            fast = bool(r.get("fast"))
+            if fast and rt.agent.last_verify_thread:
+                rt.agent.last_verify_thread.join(30)  # Spark's background check: after the reply
             calls = llm.calls[n0:]
             tools = [t["tool"] for t in r["trace"]]
             ok = set(tools) in expected
             rows.append({"text": text, "expected": [sorted(e) for e in expected], "tools": tools, "ok": ok,
-                         "reply": r["reply"], "ms": ms, "calls": len(calls),
+                         "reply": r["reply"], "ms": ms, "calls": len(calls), "fast": fast,
                          "call_ms": [c["ms"] for c in calls],
                          "prompt_tokens": [c["usage"].get("prompt_tokens") for c in calls],
                          "usd": round(cost(calls), 5)})
-            log(f"{'OK ' if ok else 'XX '} {ms:5d} ms {len(calls)} calls {tools!s:<34} {text!r}\n"
+            log(f"{'OK ' if ok else 'XX '} {ms:5d} ms {'S1' if fast else '  '} {len(calls)} calls {tools!s:<34} {text!r}\n"
                 f"      -> {r['reply'][:160]}")
     finally:
         rt.close()
@@ -169,6 +175,7 @@ def run(settings, out=None, log=print, script=SCRIPT, frames=False):
     summary = {"turns": len(rows), "tool_accuracy": f"{sum(r['ok'] for r in rows)}/{len(rows)}",
                "median_ms": ms[len(ms) // 2], "max_ms": ms[-1],
                "mean_calls": round(sum(r["calls"] for r in rows) / len(rows), 2),
+               "fast_turns": sum(r["fast"] for r in rows),
                "usd_total": round(total, 4)}
     log(json.dumps(summary))
     if out:

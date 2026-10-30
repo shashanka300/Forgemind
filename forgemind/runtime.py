@@ -29,12 +29,22 @@ class Runtime:
         self.llm = llm or build_llm(settings)
         self.ctx = Context(settings, self.memory, self.perception, self.safety, self.hub, self.llm)
         self.agent = Agent(self.ctx)
+        if warm and self.agent.system1:
+            # loading Laya takes ~10-50 s: do it now, not on the first spoken turn
+            threading.Thread(target=self._warm_system1, daemon=True, name="system1-warm").start()
         from forgemind.providers import get_ledger
         self.ledger = get_ledger(settings) if settings.meta_api_key else None
         if self.ledger:
             self.ledger.on_warn = lambda m: self.hub.push({"type": "budget", "text": m})
         self.asr = VoiceTranscribeRelay(settings, ledger=self.ledger)
         self._stop = threading.Event()
+
+    def _warm_system1(self):
+        try:
+            self.agent.system1.warm_up()
+        except Exception as e:          # the Spark path still works
+            print(f"System 1 unavailable: {e}")
+            self.agent.system1 = None
 
     def describe(self):
         return {"llm": getattr(self.llm, "name", "?"),
@@ -44,6 +54,7 @@ class Runtime:
                 "segmenter_error": getattr(self.segmenter, "last_error", None),
                 "embedder": self.embedder.name,
                 "asr": "muse-voice-transcribe" if self.asr.available else "browser",
+                "system1": self.settings.system1 if self.agent.system1 else None,
                 "vector_backend": self.memory.index.name,
                 "concepts": self.settings.concepts,
                 "zones": self.settings.zones, "static_zone": self.settings.static_zone}

@@ -78,6 +78,10 @@ class Settings:
     confirm_new: bool = True
     notes: bool = True
     report_async: bool = True
+    # System 1 fast path (agent/system1.py): a fine-tuned Laya checkpoint dir; "" = off
+    system1: str = ""
+    system1_min_conf: float = 0.96
+    system1_verify: bool = True
     budget_usd: float = 140.0
     ledger_path: str = ""
     match_min_sim: float = 0.75
@@ -125,6 +129,9 @@ class Settings:
             confirm_new=_bool("FM_CONFIRM_NEW", True),
             notes=_bool("FM_NOTES", True),
             report_async=_bool("FM_REPORT_ASYNC", True),
+            system1=_env("FM_SYSTEM1"),
+            system1_min_conf=float(_env("FM_SYSTEM1_MIN_CONF", "0.96")),
+            system1_verify=_bool("FM_SYSTEM1_VERIFY", True),
             budget_usd=float(_env("FM_BUDGET_USD", "140")),
             ledger_path=_env("FM_LEDGER"),
             match_min_sim=float(_env("FM_MATCH_MIN_SIM", "0.75")),

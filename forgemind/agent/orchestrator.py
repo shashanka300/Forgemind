@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from forgemind.agent import prompts
 from forgemind.agent.tools import NEEDS_PHRASING, ToolBox, schemas
+from forgemind.agent.system1 import WRITES, System1, base_value, undo
 from forgemind.providers.openai_compat import image_part
 
 MAX_STEPS = 6
@@ -67,6 +68,8 @@ class Agent:
         self.tools = ToolBox(ctx)
         self.schemas = schemas()
         self._lock = threading.Lock()
+        self.system1 = System1(ctx.settings, ctx.memory) if ctx.settings.system1 else None
+        self.last_verify_thread = None
 
     def _history(self):
         rows = self.ctx.memory.db.all(
@@ -101,6 +104,70 @@ class Agent:
         t.start()
         self.last_notes_thread = t          # tests join it
 
+    # -- System 1 fast path ----------------------------------------------------
+
+    def _fast_path(self, text, messages, t0):
+        """Answer with the decision model and the tool alone, or None for Spark."""
+        if not self.system1:
+            return None
+        try:
+            act = self.system1.decide(text)
+        except Exception as e:                  # a broken fast path must never block a turn
+            self.ctx.memory.db.log_event("system1", "inferred", {"error": str(e)[:200]})
+            return None
+        if not act:
+            return None
+        out = self.tools.run(act.tool, act.args)
+        if not out.get("summary") or (out.get("error") and out["error"] != out["summary"]):
+            return None                          # invalid arguments: let Spark do it properly
+        reply = out["summary"]
+        self.ctx.memory.db.log_event("system1", "inferred",
+                                     {"tool": act.tool, "args": act.args, **act.detail})
+        self._remember("assistant", reply)
+        self._extract_notes(text)
+        if act.tool in WRITES and not out.get("error") and self.ctx.settings.system1_verify:
+            t = threading.Thread(target=self._verify, args=(messages, act, out),
+                                 daemon=True, name="system1-check")
+            t.start()
+            self.last_verify_thread = t
+        trace = [{"tool": act.tool, "args": act.args, "summary": reply, "error": out.get("error"),
+                  "fast": True}]
+        return {"reply": reply, "trace": trace, "fast": True,
+                "ms": round((time.perf_counter() - t0) * 1000)}
+
+    def _verify(self, messages, act, out):
+        """Spark re-decides a fast write; if it disagrees, undo and correct out loud."""
+        llm = self.ctx.llm
+        try:
+            res = llm.chat(messages, tools=self.schemas, model=llm.model_for("agent"))
+        except Exception as e:
+            self.ctx.memory.db.log_event("system1_check", "inferred", {"error": str(e)[:200]})
+            return
+        calls = res.tool_calls or []
+        same = next((c for c in calls if c.name == act.tool and _same_args(act, c.arguments)), None)
+        # Spark ticking off the step the measurement already completed adds nothing.
+        extra = [c for c in calls if c is not same
+                 and not (c.name == "log_step" and out.get("completed_step"))]
+        self.ctx.memory.db.log_event("system1_check", "inferred", {
+            "tool": act.tool, "agree": bool(same) and not extra,
+            "spark": [{"tool": c.name, "args": c.arguments} for c in calls]})
+        if same and not extra:
+            return
+        with self._lock:
+            # Spark agrees but wanted more (a request the fast path missed): just add it.
+            # Otherwise undo the fast action and do what Spark decided instead.
+            undone = None if same else undo(self.ctx, act, out)
+            said = [self.tools.run(c.name, c.arguments).get("summary") for c in extra]
+            said = [x for x in said if x]
+            if not same and not said and (res.content or "").strip():
+                said = [res.content.strip()]
+            if same and not said:
+                return
+            lead = "Also: " if same else "Correction: "
+            msg = lead + " ".join(([undone[0].upper() + undone[1:] + "."] if undone else []) + said)
+            self.ctx.hub.say(msg)
+            self._remember("assistant", msg)
+
     def handle(self, text):
         t0 = time.perf_counter()
         with self._lock:
@@ -112,6 +179,9 @@ class Agent:
                         self._user_message(text, prefix=situation)]
             self._remember("user", text)
             self.ctx.memory.db.log_event("speech", "stated", {"text": text})
+            fast = self._fast_path(text, messages, t0)
+            if fast:
+                return fast
             trace, reply = [], None
             nudged = False
             for _ in range(MAX_STEPS):
@@ -158,3 +228,14 @@ class Agent:
             self._extract_notes(text)
             return {"reply": reply, "trace": trace,
                     "ms": round((time.perf_counter() - t0) * 1000)}
+
+
+def _same_args(act, args):
+    """Does Spark's call match the fast one where it matters?"""
+    args = args or {}
+    if act.tool == "log_measurement":
+        a, b = base_value(act.args["value"], act.args.get("unit")), base_value(args.get("value"), args.get("unit"))
+        return a is not None and b is not None and abs(a - b) <= 1e-6 + 1e-3 * abs(a)
+    if act.tool == "watch_bench":
+        return str(args.get("concept", "")).lower() == act.args["concept"].lower()
+    return True

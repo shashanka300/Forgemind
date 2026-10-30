@@ -71,7 +71,7 @@ def settings(tmp_path):
     return Settings.from_env(data_dir=tmp_path / "data", embedder="hash", meta_api_key="", confirm_new=False, notes=False, report_async=False,
                              fallback_provider="", sam_checkpoint="sam3.1",
                              vector_backend="numpy", llm_provider="mock", segmenter="none",
-                             token="secret-token", send_frames=False,
+                             token="secret-token", send_frames=False, system1="",
                              concepts=["soldering iron", "multimeter", "hex key", "person",
                                        "smoke"],
                              zones={0: "bench", 1: "shelf", 2: "drawer"}, static_zone="bench",
