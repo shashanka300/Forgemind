@@ -43,6 +43,26 @@ Where the build stands and what to do next. Update this at the end of each work 
    don't mask the white laptop the boards sit on), then a live run: `forgemind serve` +
    `forgemind static-cam --device 0 --token <t>` + phone.
 
+## Decision-model redesign (Oct 30, in progress)
+
+Idea: a local "System 1" decision model picks the tool (and object/step/zone) in ~30 ms;
+Muse Spark (System 2) only for open-ended, compound or uncertain turns. Target: single-tool
+turns answered ~0.3-0.5 s after speech ends instead of ~2.5 s. Perception unchanged.
+
+**Step 1 (Laya zero-shot) done: not usable as is.** `laya` 0.4.17 installed in `.venv`
+(adds transformers 5.22; SAM/PE unaffected). English checkpoint on the 5090: 1.7 GB VRAM,
+19-46 ms per call. Labelled dev set of 86 turns (14 tools + chat, incl. the agent-eval
+script) + 5 compound turns in `eval/laya_zero_shot.py`:
+- tool choice 37-43/86 whatever the phrasing (one 15-way choice, per-tool yes/no, or
+  category-then-tool); worse, it is wrong at confidence 1.00 ("what step am I on" ->
+  log_step), so a confidence cut-off can't make it safe
+- compound detection fails (0.08-0.49 on compound turns, up to 0.96 on single ones)
+- object choice works: 11/12 (allen key -> hex key, snips -> wire cutters; missed "DMM")
+Matches the model card (zero-shot 0.36 vs 0.77 fine-tuned on their typed-decisions set).
+Next, if the user agrees: fine-tune on our labels (training data generated locally with
+Glimmer, the 86 hand-written turns kept as the held-out test), against a cheap baseline
+(classifier on text embeddings) trained on the same data.
+
 ## Next steps (in order)
 
 1. **SAM follow-ups:** the 3.1 checkpoint is now the default (`FM_SAM_CHECKPOINT=sam3.1`;
