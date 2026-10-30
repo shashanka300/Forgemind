@@ -29,6 +29,12 @@ class Runtime:
         self.llm = llm or build_llm(settings)
         self.ctx = Context(settings, self.memory, self.perception, self.safety, self.hub, self.llm)
         self.agent = Agent(self.ctx)
+        self.speaker = None
+        if settings.tts == "kokoro":
+            from forgemind.server.tts import Speaker
+            self.speaker = Speaker(settings)
+            if warm:        # ~20 s to load: not on the first spoken reply
+                threading.Thread(target=self.speaker.warm_up, daemon=True, name="tts-warm").start()
         if warm and self.agent.system1:
             # loading Laya takes ~10-50 s: do it now, not on the first spoken turn
             threading.Thread(target=self._warm_system1, daemon=True, name="system1-warm").start()
@@ -55,6 +61,8 @@ class Runtime:
                 "embedder": self.embedder.name,
                 "asr": "muse-voice-transcribe" if self.asr.available else "browser",
                 "system1": self.settings.system1 if self.agent.system1 else None,
+                "tts": (f"kokoro:{self.speaker.voice}" if self.speaker and self.speaker.ready
+                        and not self.speaker.error else None),
                 "vector_backend": self.memory.index.name,
                 "concepts": self.settings.concepts,
                 "zones": self.settings.zones, "static_zone": self.settings.static_zone}

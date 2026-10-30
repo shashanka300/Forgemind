@@ -237,12 +237,67 @@ function card(kind, title, text, opts = {}) {
 }
 const toast = (text, kind = "") => card(kind, text, "", {ttl: 3000});
 
-function speak(text, {queue = false} = {}) {
+// Voice: the server's natural voice (Kokoro, /api/tts) when it's ready, else the phone's own.
+let VOICE = null;                         // "kokoro:af_heart" once the server voice is loaded
+const ACKS = ["Let me check.", "One moment.", "Okay."];
+const voiceCache = new Map();             // short phrases: text -> Promise<blob URL>
+const player = new Audio();
+let voiceQueue = [], voicePlaying = false, voiceGen = 0;
+
+function browserSpeak(text, {queue = false} = {}) {
   if (!("speechSynthesis" in window) || !text) return;
   if (!queue) speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text); u.rate = 1.05;
   speechSynthesis.speak(u);
 }
+async function fetchVoice(text) {
+  const r = await fetch("/api/tts", {method: "POST", credentials: "same-origin",
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify({text})});
+  if (!r.ok) throw new Error("tts " + r.status);
+  return URL.createObjectURL(await r.blob());
+}
+function voiceUrl(text) {
+  if (voiceCache.has(text)) return voiceCache.get(text);
+  const p = fetchVoice(text);
+  if (text.length <= 40) { voiceCache.set(text, p); p.catch(() => voiceCache.delete(text)); }
+  return p;
+}
+function setVoice(v) {
+  const was = VOICE; VOICE = v || null;
+  if (VOICE && VOICE !== was) ACKS.forEach(a => voiceUrl(a).catch(() => {}));   // instant acks
+}
+function isSpeaking() { return voicePlaying || ("speechSynthesis" in window && speechSynthesis.speaking); }
+function stopSpeaking() {
+  voiceGen++; voiceQueue = []; voicePlaying = false; player.pause();
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+}
+async function playNext(gen) {
+  if (gen !== voiceGen) return;
+  const job = voiceQueue.shift();
+  if (!job) { voicePlaying = false; return; }
+  voicePlaying = true;
+  try {
+    const url = await job.url;
+    if (gen !== voiceGen) return;
+    player.src = url;
+    player.onended = () => { if (!voiceCache.has(job.text)) URL.revokeObjectURL(url); playNext(gen); };
+    await player.play();
+  } catch (e) {                           // no server voice (or autoplay blocked): phone voice
+    browserSpeak(job.text, {queue: true}); playNext(gen);
+  }
+}
+function speak(text, {queue = false} = {}) {
+  if (!text) return;
+  if (!VOICE) return browserSpeak(text, {queue});
+  if (!queue) stopSpeaking();
+  voiceQueue.push({text, url: voiceUrl(text)});
+  if (!voicePlaying) playNext(voiceGen);
+}
+// Mobile browsers only play audio after a tap: unlock the player on the first one.
+document.addEventListener("pointerdown", () => {
+  player.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
+  player.play().catch(() => {});
+}, {once: true});
 // Instant acknowledgement, spoken the moment a turn ends while the agent works.
 // Only for requests that will take a tool round trip; small talk gets none.
 function ackFor(text) {
@@ -320,7 +375,10 @@ function connect(delay = 500) {
   ws.onmessage = ev => {
     try {
       const m = JSON.parse(ev.data);
-      if (m.type === "hello") { ASR = (m.providers || {}).asr || "browser"; $("hfBtn").hidden = ASR === "browser"; }
+      if (m.type === "hello") {
+        ASR = (m.providers || {}).asr || "browser"; $("hfBtn").hidden = ASR === "browser";
+        setVoice((m.providers || {}).tts);
+      }
       else onPush(m);
     } catch (e) {}
   };
@@ -456,7 +514,7 @@ function handsFree(on) {
         const s = state.sock;
         if (!s || s.readyState !== 1) return;
         const f = e.data, out = new Int16Array(f.length);
-        if (!speechSynthesis.speaking)               // silence while the phone talks
+        if (!isSpeaking())                           // silence while the phone talks
           for (let i = 0; i < f.length; i++) out[i] = Math.max(-1, Math.min(1, f[i])) * 0x7fff;
         s.send(out.buffer);
       };
@@ -486,9 +544,9 @@ function browserTalk(ptt) {
   let stopTalk = null;
   const start = e => {
     e.preventDefault(); if (stopTalk) return;
-    if (speechSynthesis.speaking) { speechSynthesis.cancel(); return; }   // tap to interrupt
+    if (isSpeaking()) { stopSpeaking(); return; }   // tap to interrupt
     if (ASR === "browser" && !SR) return;
-    speechSynthesis && speechSynthesis.cancel();
+    stopSpeaking();
     ptt.classList.add("live");
     stopTalk = ASR === "browser" ? browserTalk(ptt) : serverTalk(ptt);
   };
@@ -514,6 +572,7 @@ async function refresh() {
   if (ROLE !== "mobile") return;
   const st = await api("/api/state").catch(() => null);
   if (st) {
+    setVoice((st.providers || {}).tts);         // the voice finishes loading after the page
     $("sess").textContent = st.session ? "● " + st.session.session.name : "no session";
     if (st.phone_zone) $("zone").textContent = "📍 " + st.phone_zone;
     paused = st.paused; $("pauseBtn").classList.toggle("on", paused); $("pauseBtn").textContent = paused ? "Resume cameras" : "Pause cameras";

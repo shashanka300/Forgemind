@@ -36,7 +36,8 @@ theme *Push the Frontier*.
   where you are.
 - **Reports.** "Write it up" → a report where every fact cites the memory event it came
   from; numbers that aren't in the record are removed, missing values are flagged.
-- **Hands-free voice.** Just talk; an instant "Let me check." while the agent works.
+- **Hands-free voice.** Just talk; an instant "Let me check." while the agent works, and
+  replies in a natural voice (Kokoro, local) instead of the phone's robotic one.
 
 ## How it works
 

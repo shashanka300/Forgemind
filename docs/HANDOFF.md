@@ -103,6 +103,14 @@ phone instead of the phone posting to /api/chat. Measured with `eval/voice_laten
 (real Voice Transcribe, synthetic speech): last word -> fast answer ~0.6-1.0 s, of which
 ~0.4-1.0 s is the transcriber's end-of-turn detection. An "early answer" before end of turn
 was built and removed: the last word's partial only arrives ~70 ms before end of turn.
+**Natural voice (Oct 30):** the phone's built-in speech sounded robotic and the Meta API
+has no TTS, so replies are voiced locally by Kokoro-82M (`forgemind/server/tts.py`,
+`POST /api/tts` -> MP3; `FM_TTS=kokoro`, `FM_TTS_VOICE=am_michael`, the user's pick of 4
+samples). ~100-130 ms per reply, 10-70 KB; loads in ~6 s at server start in the background.
+The phone (`speak()`) queues ack + answer, caches the three acks, unlocks audio on the first
+tap, falls back to the phone voice on any error, and treats the new voice as "speaking" so
+hands-free still sends silence and a tap still interrupts. Verified in the browser pane:
+ack + answer played through Kokoro, no fallback.
 Not done: real phone test (zrok). Round 1 checkpoint kept at
 `F:/models/laya-forgemind` for comparison.
 

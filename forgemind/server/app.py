@@ -39,6 +39,10 @@ class ChatIn(BaseModel):
     text: str
 
 
+class SayIn(BaseModel):
+    text: str
+
+
 class TeachIn(BaseModel):
     name: str
     concept: str | None = None
@@ -152,6 +156,19 @@ def create_app(rt):
         except Exception as e:
             return JSONResponse({"reply": f"Something went wrong talking to the model: {e}",
                                  "error": str(e), "trace": []}, 502)
+
+    @app.post("/api/tts")
+    async def tts(body: SayIn):
+        """A reply in the natural voice (MP3); 503 -> the phone uses its own voice."""
+        from fastapi.responses import Response
+        sp = rt.speaker
+        if not sp or sp.loading or sp.error:
+            raise HTTPException(503, "voice not available")
+        try:
+            audio = await run_in_threadpool(sp.speak, body.text[:1500])
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
     @app.post("/api/teach")
     async def teach(body: TeachIn):

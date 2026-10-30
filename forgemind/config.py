@@ -82,6 +82,10 @@ class Settings:
     system1: str = ""
     system1_min_conf: float = 0.96
     system1_verify: bool = True
+    # spoken replies: "kokoro" (local neural voice, server/tts.py) or "" (phone's own voice)
+    tts: str = ""
+    tts_voice: str = "af_heart"
+    tts_speed: float = 1.0
     budget_usd: float = 140.0
     ledger_path: str = ""
     match_min_sim: float = 0.75
@@ -132,6 +136,9 @@ class Settings:
             system1=_env("FM_SYSTEM1"),
             system1_min_conf=float(_env("FM_SYSTEM1_MIN_CONF", "0.96")),
             system1_verify=_bool("FM_SYSTEM1_VERIFY", True),
+            tts=_env("FM_TTS"),
+            tts_voice=_env("FM_TTS_VOICE", "af_heart"),
+            tts_speed=float(_env("FM_TTS_SPEED", "1.0")),
             budget_usd=float(_env("FM_BUDGET_USD", "140")),
             ledger_path=_env("FM_LEDGER"),
             match_min_sim=float(_env("FM_MATCH_MIN_SIM", "0.75")),

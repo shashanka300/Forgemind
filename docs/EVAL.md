@@ -73,6 +73,12 @@ The remaining wait is the transcriber's end-of-speech detection. Answering befor
 possible: the last word's partial arrives ~640 ms after the user stops, ~70 ms before the
 end of turn, so there is never a complete partial to answer from early (tried and removed).
 
+### Voice
+
+| Metric | Value |
+|---|---|
+| Natural reply voice (Kokoro-82M, local, `am_michael`) | **~100-130 ms** per reply over HTTP, 10-70 KB MP3; acks cached on the phone (instant) |
+
 ## Simulated users (PRD §15.1)
 
 `forgemind sim-users`: Muse Glimmer (local, free) plays a person with a goal in their own
