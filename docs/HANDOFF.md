@@ -63,6 +63,22 @@ Next, if the user agrees: fine-tune on our labels (training data generated local
 Glimmer, the 86 hand-written turns kept as the held-out test), against a cheap baseline
 (classifier on text embeddings) trained on the same data.
 
+**Step 1b (fine-tuned Laya) done.** Data: 2,258 phrasings generated locally with Glimmer
+(`eval/gen_decisions.py`, 17 labels x 5 speaking styles + compound; some label noise, e.g.
+questions about a value labelled log_measurement); 10% kept as validation
+(`eval/decisions_valid.jsonl`). `eval/system1_train.py` -> `F:/models/laya-forgemind`
+(4 epochs, RLCD, option shuffling, ~25 min on the 5090; checkpoint not in git).
+`eval/system1_eval.py` scores the hand-written test (never trained on):
+- tool top-1 **0.93** (zero-shot 0.43), 16 ms; PE-text softmax baseline 0.86
+- Laya's `multi` misses some compound turns (0.01 on "I measured 3.3 V. Please write up a
+  report."); the existing `is_compound` regex catches all 5 -> always apply it
+- fast path = tool != chat, conf >= T, multi < 0.5, not is_compound:
+  T 0.95: 65/80 covered, 2 wrong; T 0.96: 50/80, 1 wrong ("R1 is 4.7k" -> log_measurement);
+  read-only tools only at 0.96: 14/80, 0 wrong
+- calibrated confidences top out ~0.97, so T must be fine-grained
+Not yet done: argument filling (object choice works zero-shot 11/12; numbers by regex),
+runtime integration, targeted data for the confusions (highlight vs go_look_at, "R1 is X").
+
 ## Next steps (in order)
 
 1. **SAM follow-ups:** the 3.1 checkpoint is now the default (`FM_SAM_CHECKPOINT=sam3.1`;
