@@ -158,6 +158,14 @@ def test_resume_session_by_words(rt, text, args):
     assert out["fast"] and out["trace"][0]["args"] == args
 
 
+@pytest.mark.parametrize("text,fast", [("that's it, end the session", True),
+                                       ("thanks, that's all for now", False)])
+def test_end_session_only_when_named(rt, text, fast):
+    rt.memory.experiments.start("divider")
+    agent = fast_agent(rt, {text: ("end_session", 0.99, 0.0)})
+    assert bool(agent.handle(text).get("fast")) is fast
+
+
 @pytest.mark.parametrize("text,want", [
     ("I measured 3.3 volts on the output", ("output voltage", 3.3, "V")),
     ("current draw is 120 milliamps", ("current draw", 120.0, "mA")),

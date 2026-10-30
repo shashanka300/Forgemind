@@ -1,0 +1,290 @@
+{"text": "Watch desolder pump", "label": "watch_bench", "compound": false}
+{"text": "um plan steps and teach object for the oscilloscope", "label": null, "compound": true}
+{"text": "this is my breadboard", "label": "teach_object", "compound": false}
+{"text": "check the wire cutters for me", "label": "go_look_at", "compound": false}
+{"text": "remind me where I stopped", "label": "resume_session", "compound": false, "round": 2}
+{"text": "Warn me if the soldering iron is left on too long", "label": "watch_bench", "compound": false}
+{"text": "New work, heat gun and LED strip, name it strip install", "label": "start_session", "compound": false}
+{"text": "Watch the magnet wire, tell me if it starts burning", "label": "watch_bench", "compound": false}
+{"text": "the heat gun is 858D", "label": "set_config", "compound": false, "round": 2}
+{"text": "I am ready to finish the conversation, I have coiled the magnet wire.", "label": "end_session", "compound": false}
+{"text": "Could you highlight the multimeter in my live camera view?", "label": "highlight", "compound": false}
+{"text": "Call this my Arduino", "label": "teach_object", "compound": false}
+{"text": "Can you see the screwdriver with the red handle from here?", "label": "go_look_at", "compound": false}
+{"text": "Start magnet wire splice", "label": "start_session", "compound": false}
+{"text": "um i think im ending this session time to put away the arduino", "label": "end_session", "compound": false}
+{"text": "Beginning new work with the desolder pump, name it board clean", "label": "start_session", "compound": false}
+{"text": "I've finished all my electronics workbench questions, please end this session.", "label": "end_session", "compound": false}
+{"text": "Why is LED strip flickering?", "label": "chat", "compound": false, "round": 2}
+{"text": "Make a summary report for the heat gun and shrink tube test.", "label": "generate_report", "compound": false}
+{"text": "box the solder spool", "label": "highlight", "compound": false, "round": 2}
+{"text": "show me the DMM on camera", "label": "go_look_at", "compound": false}
+{"text": "Monitor DMM display", "label": "watch_bench", "compound": false}
+{"text": "what does the calipers say", "label": "read_closeup", "compound": false, "round": 2}
+{"text": "Please go look at the soldering station and log the measurement I just took.", "label": null, "compound": true}
+{"text": "Frequency is 2.4 kilohertz at the arduino output.", "label": "log_measurement", "compound": false}
+{"text": "Begin scope probe calibration", "label": "start_session", "compound": false}
+{"text": "Could you look at the solder spool behind the heat gun with your phone camera?", "label": "go_look_at", "compound": false}
+{"text": "What's the next step after the screwdriver tightening?", "label": "resume_session", "compound": false}
+{"text": "What step are we on with the ESP32 board assembly?", "label": "resume_session", "compound": false}
+{"text": "Any idea how you'd summarize the multimeter measurements for the 10k resistor experiment?", "label": "generate_report", "compound": false}
+{"text": "point to the breadboard", "label": "highlight", "compound": false}
+{"text": "Look at DMM", "label": "go_look_at", "compound": false}
+{"text": "I would like you to mark the wire cutters in the live camera view.", "label": "highlight", "compound": false}
+{"text": "Thanks for the tip earlier.", "label": "chat", "compound": false}
+{"text": "i cant find the multimeter anywhere", "label": "where_is", "compound": false}
+{"text": "thanks a lot for the help earlier", "label": "chat", "compound": false}
+{"text": "I wonder if we can end the current chat after the pliers measurement", "label": "end_session", "compound": false}
+{"text": "End session, generate report", "label": null, "compound": true}
+{"text": "I'm done probing the signal with the scope probe.", "label": "log_step", "compound": false, "round": 2}
+{"text": "has anyone seen the esp32 board", "label": "where_is", "compound": false}
+{"text": "I can't locate the Arduino I had out last night", "label": "where_is", "compound": false}
+{"text": "Warn if screwdriver overheats", "label": "watch_bench", "compound": false, "round": 2}
+{"text": "okay thats it im closing the session im putting the calipers away", "label": "end_session", "compound": false}
+{"text": "End chat now", "label": "end_session", "compound": false}
+{"text": "That's it for now, end chat.", "label": "end_session", "compound": false}
+{"text": "um point camera at the led strip", "label": "go_look_at", "compound": false}
+{"text": "Can you remember this as my bench supply", "label": "teach_object", "compound": false}
+{"text": "Continue allen key tightening", "label": "resume_session", "compound": false}
+{"text": "just cut the magnet wire with flush cutters", "label": "log_step", "compound": false, "round": 2}
+{"text": "I am using flush cutters to trim the component leads cleanly.", "label": "set_config", "compound": false}
+{"text": "highlight the multimeter on screen", "label": "highlight", "compound": false}
+{"text": "I'd like to begin a new experiment named flux pen touch-up with the flux pen and soldering iron", "label": "start_session", "compound": false}
+{"text": "Soldered LED strip ends", "label": "log_step", "compound": false}
+{"text": "Scan the breadboard", "label": "go_look_at", "compound": false}
+{"text": "um show the screwdriver in live view", "label": "highlight", "compound": false, "round": 2}
+{"text": "Show changes since the last run with the flush cutters", "label": "compare_sessions", "compound": false}
+{"text": "What does solder spool say", "label": "read_closeup", "compound": false}
+{"text": "Would you please remind me what the bench supply current was set to before the test?", "label": "chat", "compound": false, "round": 2}
+{"text": "My ESP32 board is missing", "label": "where_is", "compound": false}
+{"text": "Monitor the flux pen, let me know if it leaks", "label": "watch_bench", "compound": false}
+{"text": "Okay, end the session, I'm back to the bench supply.", "label": "end_session", "compound": false}
+{"text": "um can you explain what a scope probe measures", "label": "chat", "compound": false}
+{"text": "Could you please point out the wire cutters in the live view?", "label": "highlight", "compound": false, "round": 2}
+{"text": "Any idea how to open a new work session called magnet wire winding with the magnet wire and pliers", "label": "start_session", "compound": false}
+{"text": "Can you point out the calipers in what I'm seeing right now?", "label": "highlight", "compound": false}
+{"text": "um what is the normal operating temperature of a soldering iron", "label": "chat", "compound": false}
+{"text": "what's different from earlier", "label": "compare_sessions", "compound": false}
+{"text": "What's on workbench", "label": "inspect_scene", "compound": false, "round": 2}
+{"text": "I wonder if you saw I just trimmed the magnet wire with the flush cutters", "label": "log_step", "compound": false}
+{"text": "okay continue with the solder spool", "label": "resume_session", "compound": false}
+{"text": "what can you see on the workbench", "label": "inspect_scene", "compound": false, "round": 2}
+{"text": "highlight the LED strip", "label": "highlight", "compound": false, "round": 2}
+{"text": "Nice weather today", "label": "chat", "compound": false}
+{"text": "Got 3.3 volts at the breadboard rail.", "label": "log_measurement", "compound": false}
+{"text": "Monitor the bench supply voltage, ping me if it spikes", "label": "watch_bench", "compound": false}
+{"text": "um let me know if the scope probe is left connected", "label": "watch_bench", "compound": false, "round": 2}
+{"text": "remind me about 10k resistor", "label": "resume_session", "compound": false, "round": 2}
+{"text": "What's in frame now?", "label": "inspect_scene", "compound": false}
+{"text": "I measured about 12.4 volts across the bench supply output with my multimeter.", "label": "log_measurement", "compound": false}
+{"text": "Could you highlight the resistor and go look at it more closely?", "label": null, "compound": true}
+{"text": "Excuse me, where is the solder spool? I've misplaced it.", "label": "where_is", "compound": false}
+{"text": "Ending session now", "label": "end_session", "compound": false}
+{"text": "probed with scope probe", "label": "log_step", "compound": false, "round": 2}
+{"text": "Nice, the new LED strip looks bright.", "label": "chat", "compound": false}
+{"text": "I\u2019ll check the resistor value with the multimeter", "label": "plan_steps", "compound": false}
+{"text": "Can you generate a report and tell me where the power supply is?", "label": null, "compound": true}
+{"text": "New hex key fit test", "label": "start_session", "compound": false}
+{"text": "Solder spool is 0.6 mm", "label": "set_config", "compound": false}
+{"text": "Resume screwdriver step", "label": "resume_session", "compound": false}
+{"text": "Set config to night mode and plan steps.", "label": null, "compound": true}
+{"text": "Where left with scope probe?", "label": "resume_session", "compound": false}
+{"text": "Allen key on the bench, DMM shows 22 ohms.", "label": "log_measurement", "compound": false}
+{"text": "Alert me if iron overheats", "label": "watch_bench", "compound": false}
+{"text": "Plan to crimp connectors", "label": "plan_steps", "compound": false}
+{"text": "Breadboard rail is 4.98 volts.", "label": "log_measurement", "compound": false}
+{"text": "Inspect scene then read closeup on that label.", "label": null, "compound": true}
+{"text": "the Arduino is a Nano Every", "label": "set_config", "compound": false, "round": 2}
+{"text": "Will use tweezers for SMD", "label": "plan_steps", "compound": false}
+{"text": "finished soldering header", "label": "log_step", "compound": false, "round": 2}
+{"text": "Done tightening the case screws with the screwdriver.", "label": "log_step", "compound": false}
+{"text": "Do you know where the 10k resistor is? I can't find it.", "label": "where_is", "compound": false}
+{"text": "um i picked the scope probe 10x", "label": "set_config", "compound": false}
+{"text": "Could you mark the heat gun in the current live view?", "label": "highlight", "compound": false, "round": 2}
+{"text": "Hey, you around?", "label": "chat", "compound": false}
+{"text": "um the temperature of the flux pen is 24 degrees", "label": "log_measurement", "compound": false}
+{"text": "where did the breadboard go", "label": "where_is", "compound": false}
+{"text": "What was the 10k resistor actually measuring?", "label": "chat", "compound": false, "round": 2}
+{"text": "i just measured 4 point 7 volts across the 10k resistor", "label": "log_measurement", "compound": false}
+{"text": "Continue where we left off on the heat gun", "label": "resume_session", "compound": false}
+{"text": "point your camera at the soldering iron", "label": "go_look_at", "compound": false}
+{"text": "okay what step are we on with the 10k resistor", "label": "resume_session", "compound": false}
+{"text": "Write down what happened with the arduino and the 10k resistor.", "label": "generate_report", "compound": false}
+{"text": "Read tweezers markings", "label": "read_closeup", "compound": false}
+{"text": "What's the capital of Japan?", "label": "chat", "compound": false}
+{"text": "DMM set to continuity mode", "label": "set_config", "compound": false}
+{"text": "Could you please remind me which step I was up to with the LED strip?", "label": "resume_session", "compound": false, "round": 2}
+{"text": "my hex key set is missing one size", "label": "chat", "compound": false}
+{"text": "okay read closeup and log measurement for the diode", "label": null, "compound": true}
+{"text": "Start new job, wire cutters and magnet wire, call it harness build", "label": "start_session", "compound": false}
+{"text": "okay what did the solder spool diameter come to last time", "label": "chat", "compound": false, "round": 2}
+{"text": "Thanks, that helped.", "label": "chat", "compound": false}
+{"text": "Please resume the session at the point we left off with the heat gun.", "label": "resume_session", "compound": false}
+{"text": "um i chose the solder spool 63 37", "label": "set_config", "compound": false}
+{"text": "Heat gun set to what", "label": "read_closeup", "compound": false}
+{"text": "bench supply settings diff", "label": "compare_sessions", "compound": false}
+{"text": "okay see the flux pen on the left", "label": "go_look_at", "compound": false}
+{"text": "Would you mind watching the bench and reading the closeup of the display?", "label": null, "compound": true}
+{"text": "show changes since yesterday", "label": "compare_sessions", "compound": false}
+{"text": "LED strip is 12 volt", "label": "set_config", "compound": false}
+{"text": "um im done stopping the session and putting the crimper down", "label": "end_session", "compound": false}
+{"text": "I set the bench supply to 12 volts and 1 amp.", "label": "set_config", "compound": false}
+{"text": "Could you look at the wire cutters on the mat with your phone camera?", "label": "go_look_at", "compound": false}
+{"text": "um where did i stop with the wire cutters", "label": "resume_session", "compound": false, "round": 2}
+{"text": "Going to use heat gun", "label": "plan_steps", "compound": false}
+{"text": "what is the bench supply reading at the moment", "label": "read_closeup", "compound": false, "round": 2}
+{"text": "show the second soldering iron", "label": "highlight", "compound": false}
+{"text": "Could you read the markings on this 10k resistor for me", "label": "read_closeup", "compound": false}
+{"text": "highlight the wire cutters in view", "label": "highlight", "compound": false, "round": 2}
+{"text": "I would like you to document the experiment with the Arduino and the LED strip, please.", "label": "generate_report", "compound": false}
+{"text": "can you look at the esp32 board um", "label": "go_look_at", "compound": false}
+{"text": "Would you please compare this run's bench supply output to the last one?", "label": "compare_sessions", "compound": false}
+{"text": "Could you log a fresh work session named multimeter calibration using the DMM and calipers", "label": "start_session", "compound": false}
+{"text": "Could you begin a new session called pliers bending with the pliers and 10k resistor", "label": "start_session", "compound": false}
+{"text": "can you tell me whats on the bench", "label": "inspect_scene", "compound": false}
+{"text": "I love these tweezers", "label": "chat", "compound": false}
+{"text": "LED strip moved since last", "label": "compare_sessions", "compound": false}
+{"text": "How hot does a soldering iron usually get?", "label": "chat", "compound": false}
+{"text": "Which part was I on with the DMM calibration?", "label": "resume_session", "compound": false, "round": 2}
+{"text": "What\u2019s on the desk next to the multimeter", "label": "inspect_scene", "compound": false}
+{"text": "Plan to cut about six pieces of magnet wire with the flush cutters", "label": "plan_steps", "compound": false}
+{"text": "this is my screwdriver", "label": "teach_object", "compound": false}
+{"text": "Wrap it up, I'm back to the multimeter.", "label": "end_session", "compound": false}
+{"text": "Can't find pliers", "label": "where_is", "compound": false}
+{"text": "Where did we stop last time with the Arduino wiring?", "label": "resume_session", "compound": false}
+{"text": "I'm done here, close chat.", "label": "end_session", "compound": false}
+{"text": "Please start a new experiment called crimper termination with the crimper and magnet wire.", "label": "start_session", "compound": false}
+{"text": "compare wire cutters count", "label": "compare_sessions", "compound": false}
+{"text": "Could you remember I'm using the flush cutters for trimming the leads", "label": "set_config", "compound": false}
+{"text": "Alert me if the LED strip gets hot", "label": "watch_bench", "compound": false}
+{"text": "just flashed the esp32 board", "label": "log_step", "compound": false, "round": 2}
+{"text": "Could you notify me if the bench supply voltage rises above 12 volts?", "label": "watch_bench", "compound": false, "round": 2}
+{"text": "um what was i doing with the magnet wire", "label": "resume_session", "compound": false, "round": 2}
+{"text": "What did the LED voltage come to earlier?", "label": "chat", "compound": false, "round": 2}
+{"text": "okay whats on the workbench with the arduino", "label": "inspect_scene", "compound": false}
+{"text": "Could you please point out the DMM on the live view?", "label": "highlight", "compound": false}
+{"text": "I wonder if setting the bench supply to 12V is okay for this LED strip", "label": "set_config", "compound": false}
+{"text": "Finished flux pen session", "label": "end_session", "compound": false}
+{"text": "Lost the flux pen", "label": "where_is", "compound": false}
+{"text": "um first i will set the bench supply to 5 volts then power the breadboard", "label": "plan_steps", "compound": false}
+{"text": "um the frequency is 50 kilohertz on the arduino", "label": "log_measurement", "compound": false}
+{"text": "I was considering using the desolder pump for this removal", "label": "set_config", "compound": false}
+{"text": "Finished cleaning up with the desolder pump.", "label": "log_step", "compound": false}
+{"text": "okay what is on the bench camera right now", "label": "inspect_scene", "compound": false}
+{"text": "Would you please watch the allen key set and alert me if a piece goes missing?", "label": "watch_bench", "compound": false}
+{"text": "the breadboard is 830 tie points", "label": "set_config", "compound": false, "round": 2}
+{"text": "I'm done applying flux with the flux pen.", "label": "log_step", "compound": false, "round": 2}
+{"text": "continue with wire cutters", "label": "resume_session", "compound": false, "round": 2}
+{"text": "Please tell me what the camera is seeing on the workbench now.", "label": "inspect_scene", "compound": false}
+{"text": "Can you take a look at the shelf above the workbench with your camera.", "label": "go_look_at", "compound": false, "round": 2}
+{"text": "I wonder if we should close the current session now", "label": "end_session", "compound": false}
+{"text": "where were we with the screwdriver", "label": "resume_session", "compound": false}
+{"text": "where is the arduino", "label": "where_is", "compound": false}
+{"text": "just reeled new solder from the solder spool", "label": "log_step", "compound": false}
+{"text": "Where's the ESP32 board?", "label": "where_is", "compound": false}
+{"text": "i want to use the calipers to measure the screwdriver shaft then pick the right allen key", "label": "plan_steps", "compound": false}
+{"text": "um i got 0 point 8 amps on the led strip", "label": "log_measurement", "compound": false}
+{"text": "Finished tightening the four screws with the hex key", "label": "log_step", "compound": false, "round": 2}
+{"text": "okay warn me if the soldering iron is left on", "label": "watch_bench", "compound": false, "round": 2}
+{"text": "could you finish up the session after the 2nd multimeter reading?", "label": "end_session", "compound": false}
+{"text": "I would like a report written up about the trial with the DMM and the LED strip.", "label": "generate_report", "compound": false}
+{"text": "okay point out the soldering iron for me", "label": "highlight", "compound": false}
+{"text": "Could you not log this, I'm only trying the heat gun setting.", "label": "log_step", "compound": false}
+{"text": "I'm looking for the wire cutters, I can't find them anywhere.", "label": "where_is", "compound": false}
+{"text": "Any idea you could not record this I was just testing the DMM on the bench supply", "label": "log_step", "compound": false}
+{"text": "Okay, finish the session, I'm testing with scope probe.", "label": "end_session", "compound": false}
+{"text": "show the ESP32 board on camera", "label": "highlight", "compound": false}
+{"text": "I'm done with the screwdriver instructions, please close this session.", "label": "end_session", "compound": false}
+{"text": "What is on bench now?", "label": "inspect_scene", "compound": false}
+{"text": "check the breadboard wiring with your camera", "label": "go_look_at", "compound": false}
+{"text": "Go look, read closeup", "label": null, "compound": true}
+{"text": "um what is in front of the camera", "label": "inspect_scene", "compound": false, "round": 2}
+{"text": "whats the setting on the crimper", "label": "read_closeup", "compound": false}
+{"text": "okay lets resume with the pliers", "label": "resume_session", "compound": false}
+{"text": "View ESP32 board", "label": "go_look_at", "compound": false}
+{"text": "Using a 10k resistor here", "label": "set_config", "compound": false}
+{"text": "Any idea how to begin a new experiment called soldering iron warm-up with the solder spool and flux pen", "label": "start_session", "compound": false}
+{"text": "Please go look at the oscilloscope and read a closeup of its display.", "label": null, "compound": true}
+{"text": "I wonder where the scope probe went", "label": "where_is", "compound": false}
+{"text": "flux pen is RMA", "label": "set_config", "compound": false, "round": 2}
+{"text": "Could you read what's written on the breadboard label", "label": "read_closeup", "compound": false}
+{"text": "Can you show me what's in front of the camera?", "label": "inspect_scene", "compound": false, "round": 2}
+{"text": "what's the arduino serial output showing", "label": "read_closeup", "compound": false, "round": 2}
+{"text": "Alert if DMM overheats", "label": "watch_bench", "compound": false, "round": 2}
+{"text": "What was I doing with these wire cutters?", "label": "resume_session", "compound": false, "round": 2}
+{"text": "can you inspect scene and highlight the loose wire", "label": null, "compound": true}
+{"text": "Here's my magnet wire", "label": "teach_object", "compound": false}
+{"text": "Could you log that the screwdriver is a PH2 Phillips head.", "label": "set_config", "compound": false, "round": 2}
+{"text": "Can you describe the contents of the bench as they appear right now?", "label": "inspect_scene", "compound": false, "round": 2}
+{"text": "How many volts does a bench supply usually put out max?", "label": "chat", "compound": false}
+{"text": "im finished with our chat im leaving the bench supply on", "label": "end_session", "compound": false}
+{"text": "okay make a report about the desolder pump and the soldering iron", "label": "generate_report", "compound": false}
+{"text": "Where did I stop with the screwdriver and these screws?", "label": "resume_session", "compound": false, "round": 2}
+{"text": "Where's my hex key?", "label": "where_is", "compound": false}
+{"text": "I wonder if you noticed I just set the calipers aside after checking", "label": "log_step", "compound": false}
+{"text": "I'm thinking about using the soldering iron to attach the LED strip to the breadboard later on", "label": "plan_steps", "compound": false}
+{"text": "Could you read the part number on this ESP32 board", "label": "read_closeup", "compound": false}
+{"text": "I intend to set up the breadboard with the Arduino and add a 10k resistor for the pull-up.", "label": "plan_steps", "compound": false}
+{"text": "Ohms read 47.3 on the multimeter", "label": "log_measurement", "compound": false}
+{"text": "How many volts does a bench supply put out max?", "label": "chat", "compound": false}
+{"text": "Is a hex key the same thing as an allen key?", "label": "chat", "compound": false}
+{"text": "I\u2019m going to test continuity on the DMM before soldering", "label": "plan_steps", "compound": false}
+{"text": "can you tell me what the phone camera sees", "label": "inspect_scene", "compound": false}
+{"text": "can you inspect the shelf behind the scope probe storage", "label": "go_look_at", "compound": false, "round": 2}
+{"text": "Close allen key session", "label": "end_session", "compound": false}
+{"text": "Could you please watch the LED strip and let me know if you see any smoke or flickering?", "label": "watch_bench", "compound": false}
+{"text": "I wonder if we can wrap up this session now", "label": "end_session", "compound": false}
+{"text": "Look at allen key", "label": "go_look_at", "compound": false}
+{"text": "can you remind me where we left off with the scope probe", "label": "resume_session", "compound": false}
+{"text": "Can you tell me what the heat gun display shows", "label": "read_closeup", "compound": false}
+{"text": "Where is the multimeter?", "label": "where_is", "compound": false}
+{"text": "Any idea what measurement the calipers are currently showing", "label": "read_closeup", "compound": false}
+{"text": "Point out screwdriver", "label": "highlight", "compound": false}
+{"text": "How's this Arduino wiring different from yesterday?", "label": "compare_sessions", "compound": false}
+{"text": "What changed since last time I used the tweezers?", "label": "compare_sessions", "compound": false}
+{"text": "can you tell me what the DMM says", "label": "read_closeup", "compound": false}
+{"text": "Which step was I up to on the Arduino project?", "label": "resume_session", "compound": false, "round": 2}
+{"text": "I have selected a 3.5 mm allen key for this set screw.", "label": "set_config", "compound": false}
+{"text": "Multimeter says 0.03 amps through the magnet wire", "label": "log_measurement", "compound": false}
+{"text": "Please don't log this, I'm just trying the pliers on a test wire.", "label": "log_step", "compound": false}
+{"text": "um the led strip is missing", "label": "where_is", "compound": false}
+{"text": "Would you please take a look at the flux pen on the shelf using your camera?", "label": "go_look_at", "compound": false}
+{"text": "um what comes after this with the heat gun", "label": "resume_session", "compound": false, "round": 2}
+{"text": "how many solder spools now", "label": "compare_sessions", "compound": false}
+{"text": "okay replaced the led strip", "label": "log_step", "compound": false, "round": 2}
+{"text": "I would like you to remember this as my breadboard.", "label": "teach_object", "compound": false}
+{"text": "New experiment, crimper and bench supply, call it power test two", "label": "start_session", "compound": false}
+{"text": "What\u2019s laid out on the desk", "label": "inspect_scene", "compound": false}
+{"text": "the flux pen is Amtech NC", "label": "set_config", "compound": false, "round": 2}
+{"text": "Could you teach this object and tell me where the multimeter is?", "label": null, "compound": true}
+{"text": "okay check the multimeter with the camera", "label": "go_look_at", "compound": false}
+{"text": "what comes after this", "label": "resume_session", "compound": false, "round": 2}
+{"text": "Can you write a report on the tweezers and ESP32 board assembly?", "label": "generate_report", "compound": false}
+{"text": "I wonder if you could document the flux pen application on the solder spool joints.", "label": "generate_report", "compound": false}
+{"text": "I'm finished with the LED strip questions, could you close this session?", "label": "end_session", "compound": false}
+{"text": "ESP32 board output is 8 kilohertz according to scope probe.", "label": "log_measurement", "compound": false}
+{"text": "okay im closing out the session im putting the magnet wire away", "label": "end_session", "compound": false}
+{"text": "hey nice to see you again", "label": "chat", "compound": false}
+{"text": "Show what\u2019s on the work surface.", "label": "inspect_scene", "compound": false, "round": 2}
+{"text": "What is on Arduino label", "label": "read_closeup", "compound": false}
+{"text": "mark the bench supply", "label": "highlight", "compound": false, "round": 2}
+{"text": "I wonder if you can get a clear view of the magnet wire spool.", "label": "go_look_at", "compound": false}
+{"text": "Replaced the cap", "label": "log_step", "compound": false, "round": 2}
+{"text": "I don't see the pliers anywhere, where might they be?", "label": "where_is", "compound": false}
+{"text": "um im done with this chat im putting the esp32 board aside", "label": "end_session", "compound": false}
+{"text": "check the arduino next to the power supply", "label": "go_look_at", "compound": false}
+{"text": "okay this is my tweezers", "label": "teach_object", "compound": false}
+{"text": "Could you please write up documentation for the experiment involving the pliers and the breadboard?", "label": "generate_report", "compound": false}
+{"text": "what voltage does a typical led strip run on", "label": "chat", "compound": false}
+{"text": "um alert me if the tweezers melt", "label": "watch_bench", "compound": false, "round": 2}
+{"text": "Any idea if you can see the LED strip behind the bench supply?", "label": "go_look_at", "compound": false}
+{"text": "Going to load solder spool", "label": "plan_steps", "compound": false}
+{"text": "okay what was the current draw from the bench supply earlier", "label": "chat", "compound": false, "round": 2}
+{"text": "Can't find heat gun", "label": "where_is", "compound": false}
+{"text": "Would you mind looking at the leftmost shelf with your phone camera.", "label": "go_look_at", "compound": false, "round": 2}
+{"text": "Would you tell me if the solder spool length changed since we last checked?", "label": "compare_sessions", "compound": false}
+{"text": "Bench supply is reading 12.0 volts under load.", "label": "log_measurement", "compound": false}
+{"text": "What\u2019s currently on the bench?", "label": "inspect_scene", "compound": false, "round": 2}
+{"text": "where was I with Arduino", "label": "resume_session", "compound": false, "round": 2}
+{"text": "inspect scene and watch bench while I work", "label": null, "compound": true}
+{"text": "What do you make of 5.02 volts I'm measuring at the breadboard rail with the DMM", "label": "log_measurement", "compound": false}

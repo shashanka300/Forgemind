@@ -90,9 +90,14 @@ thread: same call -> nothing; same + more (a missed request) -> runs the extra c
 says "Also: ..."; different -> `undo` + Spark's calls + "Correction: ...". Laya loads in the
 background at server start; turns during loading go to Spark. agent-eval: 15/15, 5 fast
 turns at 31-53 ms, median 1.27 s (from 2.2 s), $0.055; both background checks agreed.
-Tests: `tests/test_system1.py` (stub Laya). Not done: a second data round for the known
-confusions (highlight vs go_look_at, "R1 is X", smoke), deciding on partial transcripts
-while the user is still talking, real phone test.
+Tests: `tests/test_system1.py` (stub Laya).
+**Round 2 (in use, `F:/models/laya-forgemind-r2`):** +650 Glimmer phrasings on the
+confused boundaries (`eval/gen_confusions.py`; prompts checked to contain no test phrasings)
+-> hand-written test top-1 0.98, 0 wrong fast actions at any cut-off; agent-eval 15/15 with
+7 fast turns, median 1.35 s, max 2.6 s, $0.037. end_session is fast only when the session is
+named (a goodbye was fast-ended and then undone). Not done: deciding on partial transcripts
+while the user is still talking; real phone test. Round 1 checkpoint kept at
+`F:/models/laya-forgemind` for comparison.
 
 ## Next steps (in order)
 

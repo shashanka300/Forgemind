@@ -67,8 +67,8 @@ THINGS = ("hex key, allen key, multimeter, DMM, soldering iron, wire cutters, fl
           "breadboard, arduino, ESP32 board, scope probe, solder spool, flux pen, heat gun, screwdriver, "
           "magnet wire, 10k resistor, LED strip, bench supply, calipers, crimper, desolder pump")
 
-def ask(label, style, n=25, seed=0):
-    definition, near = LABELS[label]
+def ask(label, style, n=25, seed=0, meaning=None):
+    definition, near = meaning or LABELS[label]
     prompt = (f"You write test data for a voice assistant at an electronics workbench. Write {n} different things "
               f"a person might say that mean: the user {definition}. ({near}.)\n"
               f"Style: {style}. Vary wording, objects and numbers; objects can include: {THINGS}. "

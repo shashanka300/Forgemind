@@ -50,10 +50,10 @@ background and undone with a spoken correction if it disagrees.
 
 | Metric | Value | Reproduce |
 |---|---|---|
-| Tool choice, 86 hand-written turns (never trained on) | **0.93** fine-tuned (0.43 zero-shot; text-embedding baseline 0.86) | `eval/system1_eval.py --laya F:/models/laya-forgemind --baseline` |
-| Fast-path coverage at confidence 0.96 (+ compound rule) | 50/80 tool turns, **1 wrong** ("R1 is 4.7k" logged as a measurement; the Spark check undoes it) | same |
-| agent-eval with the fast path on | **15/15**, 5 turns on the fast path at **31–53 ms**, median turn **1.27 s** (2.2 s without), $0.055 | `FM_SYSTEM1=F:/models/laya-forgemind forgemind agent-eval` |
-| Spark's background check on fast writes | 2/2 agreed (measurement, watch); 0 corrections | same (events `system1_check`) |
+| Tool choice, 86 hand-written turns (never trained on) | **0.98** round 2 (0.93 round 1, 0.43 zero-shot; text-embedding baseline 0.86) | `eval/system1_eval.py --laya F:/models/laya-forgemind-r2 --baseline` |
+| Fast-path coverage at confidence 0.96 (+ compound rule) | round 2: 74/80 tool turns decided, 35 on fast-path tools, **0 wrong** at any cut-off 0.90-0.97 (round 1: 1 wrong, "R1 is 4.7k"). Round 2 targeted the confusions round 1 showed on these turns (no test phrasings used), so this test is a little optimistic | same |
+| agent-eval with the fast path on | **15/15**, 7 turns on the fast path at **33–132 ms**, median **1.35 s**, max 2.6 s (2.2 s / 4.4 s without), $0.037 | `forgemind agent-eval` (`.env` sets `FM_SYSTEM1`) |
+| Spark's background check on fast writes | round 1 run: 2/2 agreed; round 2 run: measurement and watch agreed, "thanks, that's all for now" -> end_session was undone with a correction, so end_session is now fast only when the session is named | same (events `system1_check`) |
 | Through the server | "where are my headphones?" answered in 175 ms over HTTP | `/api/chat` |
 | Decision model cost | 1.7 GB VRAM, ~16-20 ms per decision, no API spend | |
 

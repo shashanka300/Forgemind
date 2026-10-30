@@ -115,6 +115,7 @@ def base_value(value, unit):
 # A question about a value ("is 68 degrees too hot?") isn't a reading to log.
 _QUESTION = re.compile(r"\?\s*$|^\W*(?:um\s+|so\s+)?(?:what|why|how|is|are|should|could|can|would|does|do|will)\b"
                        r"|\btoo (?:high|low|hot|cold|much)\b|\b(?:normal|okay|ok|safe) for\b", re.I)
+_NAMES_SESSION = re.compile(r"\b(?:session|experiment|job|run|test)\b", re.I)
 _SECONDS = re.compile(r"(\d+)\s*(seconds?|secs?|minutes?|mins?)\b", re.I)
 
 
@@ -197,7 +198,9 @@ class System1:
         if tool == "read_closeup":
             return {"target": "multimeter display"}
         if tool == "end_session":
-            return {}
+            # "thanks, that's all for now" may be a goodbye, not an ending: only when the
+            # session itself is named (agent-eval: Spark disagreed and it was undone)
+            return {} if _NAMES_SESSION.search(text) else None
         if tool == "watch_bench":
             secs = _SECONDS.search(low)
             seconds = None
