@@ -268,6 +268,9 @@ def create_app(rt):
             "phone_zone": rt.perception.phone_zone.current(now),
             "user_away_s": round(rt.safety.user_away_for(now)),
             "desk_mic": {"enabled": rt.desk_mic_enabled, "listening": rt.desk_mic_open > 0},
+            "phone_mic": {"listening": rt.phone_mic_open > 0,
+                          "idle_s": round(now - rt.phone_mic_closed_at)},
+            "wake_word": rt.settings.wake_word,
             "session": rt.memory.experiments.state(s["id"]) if s else None,
             "scenes": {c: rt.perception.scene(c) for c in ("static", "mobile")},
             "looks": rt.hub.pending_looks(),
@@ -402,10 +405,20 @@ def create_app(rt):
         if hands_free and socket.query_params.get("server_turns") == "1":
             from forgemind.server.asr import TurnHooks
             source = socket.query_params.get("source") or "phone"
-            hooks = TurnHooks(partial=rt.agent.prefetch,
+            def addressed(text):
+                if source == "desk" and rt.phone_mic_open:     # one mic at a time: the phone's
+                    return None
+                return rt.agent.addressed(text) if rt.settings.wake_word else text
+
+            def partial(text):
+                said = rt.agent.addressed(text, peek=True) if rt.settings.wake_word else text
+                if said:
+                    rt.agent.prefetch(said)
+            hooks = TurnHooks(partial=partial, addressed=addressed,
                               turn=lambda text: run_in_threadpool(rt.agent.handle, text, source))
         is_desk = socket.query_params.get("source") == "desk"
         rt.desk_mic_open += is_desk
+        rt.phone_mic_open += not is_desk
         try:
             # without hooks the phone sends each turn to /api/chat itself
             await rt.asr.run(socket, hands_free, hooks)
@@ -413,6 +426,9 @@ def create_app(rt):
             pass
         finally:
             rt.desk_mic_open -= is_desk
+            rt.phone_mic_open -= not is_desk
+            if not is_desk:
+                rt.phone_mic_closed_at = time.time()
             try:
                 await socket.close()
             except (RuntimeError, WebSocketDisconnect):

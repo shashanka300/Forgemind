@@ -87,6 +87,15 @@ Phone test 2: Spark median 4.1 s, max 19 s (queue included). Causes and fixes:
   from two mics = one turn. NOT yet run with a real mic.
 **Rule from the user: all cameras off while building; start only for a test.**
 
+## Third phone test fixes (Oct 31)
+
+Both mics at once mixed the conversation (23 desk / 22 phone turns; each cut sentences differently, so
+replies bounced between PC and phone). Now: one mic at a time (phone mic on -> desk mic closed;
+`should_listen`, and the server refuses desk turns); replies on the device whose mic is open.
+Wake word (`FM_WAKE_WORD=true`): hands-free only acts on "Forge, ..." plus follow-ups for 8 s after a
+reply; hold-to-talk and typing don't need it. Agent can't promise setup changes (`promises_setup_change`
+replaces the reply). `find` no longer merges "measurement tape" with "paper tape".
+
 ## Where to pick up (Oct 30, end of session)
 
 Nothing left to build before the real phone test; everything below needs the user:

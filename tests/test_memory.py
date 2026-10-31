@@ -259,3 +259,10 @@ def test_prune_keeps_referenced_and_recent_keyframes(rt):
     left = {p.name for p in mem.keyframes_dir.glob("*.jpg")}
     referenced = {v for q in mem.KEYFRAME_REFS for r in mem.db.all(q) for v in r.values() if v}
     assert "fresh.jpg" in left and referenced <= left and removed == 3 - len(referenced & {p.name for p in files})
+
+
+def test_a_different_tape_is_not_this_tape(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    rt.agent.tools.run("teach_object", {"name": "paper tape"})
+    assert not [v for v in rt.memory.registry.find("measurement tape") if v["label"] == "paper tape"]
+    assert rt.memory.registry.find("tape")[0]["label"] == "paper tape"

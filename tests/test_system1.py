@@ -318,3 +318,46 @@ def test_echo_filter_never_cuts_the_middle_of_a_sentence():
     assert strip_echo(text, said) == text
     said = [_words("Turn it a little and say it again so I can recognise it from other angles.")]
     assert strip_echo("recognise it from other angles. See I have a small pen drive", said) == "See I have a small pen drive"
+
+
+@pytest.mark.parametrize("text,want", [
+    ("Forge, where is my hex key?", "where is my hex key?"), ("hey forge where's the tape", "where's the tape"),
+    ("ok ForgeMind, read the meter", "read the meter"), ("so I think I'll measure this next", None),
+    ("the forge is hot", None), ("Forge", "Forge"),
+])
+def test_wake_word(rt, text, want):
+    assert rt.agent.addressed(text) == want
+
+
+def test_follow_up_needs_no_wake_word_then_it_does(rt):
+    agent = fast_agent(rt, {})
+    agent._remember("assistant", "Yes?")
+    assert agent.addressed("where is it") == "where is it"
+    agent._follow_until = time.time() - 1
+    assert agent.addressed("where is it") is None
+
+
+def test_just_the_wake_word_gets_an_answer(rt):
+    agent = fast_agent(rt, {})
+    assert agent.handle("Forge.")["reply"] == "Yes?" and agent.ctx.llm.calls == 0
+
+
+@pytest.mark.parametrize("reply,bad", [
+    ("Got it, phone only from here.", True), ("Got it, I'll listen from the closest device only.", True),
+    ("Got it, I'll keep the bench and phone audio separate going forward.", True),
+    ("Got it, staying on the phone.", True), ("I'm listening — from the phone only?", False),
+    ("Point the phone at it and I'll check.", False), ("Paris.", False),
+])
+def test_setup_promises_are_caught(reply, bad):
+    from forgemind.agent.orchestrator import promises_setup_change
+    assert promises_setup_change(reply) is bad
+
+
+def test_setup_promise_is_replaced_by_the_truth(rt):
+    class Promises(SparkStub):
+        def chat(self, messages, tools=None, model=None, **kw):
+            self.calls += 1
+            return ChatResult(content="Got it, phone only from here.", tool_calls=[])
+    agent = fast_agent(rt, {}, Promises())
+    agent.system1 = None
+    assert agent.handle("reply on the phone alone please")["reply"].startswith("I can't change that")

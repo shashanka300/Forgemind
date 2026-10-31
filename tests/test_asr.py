@@ -141,3 +141,34 @@ def test_server_turns_answer_on_the_server_and_prefetch_partials(rt):
     assert {"type": "reply", "text": "where is the multimeter",
             "reply": "answer to where is the multimeter", "trace": []} in turns
     assert {"type": "reply", "text": "thanks", "reply": "answer to thanks", "trace": []} in turns
+
+
+def test_hands_free_ignores_what_is_not_addressed_to_it(rt):
+    rt.settings.wake_word = True
+    rt.agent.prefetch = lambda text: None
+    handled = []
+    rt.agent.handle = lambda text, source=None: handled.append(text) or {"reply": "ok", "trace": []}
+    with _client(rt, FakeEndpointing()) as c:
+        with c.websocket_connect("/ws/asr?t=secret-token&mode=hands_free&server_turns=1") as ws:
+            ws.receive_json()
+            for _ in range(4):
+                ws.send_bytes(b"\x00\x00" * 1600)
+            got = [ws.receive_json() for _ in range(4)]
+            ws.send_text(json.dumps({"type": "end"}))
+    assert [m["type"] for m in got if m["type"] in ("heard", "turn", "reply")] == ["heard", "heard"]
+    assert handled == []
+
+
+def test_phone_mic_open_closes_the_desk_route(rt):
+    rt.settings.wake_word = False
+    rt.phone_mic_open = 1
+    rt.agent.prefetch = lambda text: None
+    rt.agent.handle = lambda text, source=None: {"reply": "ok", "trace": []}
+    with _client(rt, FakeEndpointing()) as c:
+        with c.websocket_connect("/ws/asr?t=secret-token&mode=hands_free&server_turns=1&source=desk") as ws:
+            ws.receive_json()
+            for _ in range(4):
+                ws.send_bytes(b"\x00\x00" * 1600)
+            got = [ws.receive_json() for _ in range(4)]
+            ws.send_text(json.dumps({"type": "end"}))
+    assert not [m for m in got if m["type"] in ("turn", "reply")]

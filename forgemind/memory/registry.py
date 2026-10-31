@@ -325,6 +325,7 @@ class Registry:
         ents = self.db.all("SELECT * FROM entities WHERE deleted=0")
         scored = []
         head = q.split()[-1] if q else ""
+        single_word = len(q.split()) == 1
         for e in ents:
             label = (e["name"] or "").lower()
             concept = e["concept"].lower()
@@ -333,8 +334,8 @@ class Registry:
                 s = 3.0
             elif concept == q or concept in q or q in concept:
                 s = 2.0
-            elif head in (label + " " + concept).split():
-                s = 1.0                 # the noun, not any word: "baby's hand" isn't "baby's biter"
+            elif single_word and head in (label + " " + concept).split():
+                s = 1.0                 # "tape" finds "paper tape"; "measurement tape" doesn't
             if s:
                 scored.append((s + (e["last_seen"] or 0) * 1e-12, e))
         if scored:

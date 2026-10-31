@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from forgemind.cameras.desk_mic import should_listen, to_pcm16
 from forgemind.server.app import create_app
 
-NEAR = {"desk_mic": {"enabled": True}, "paused": False, "private": False, "user_away_s": 5,
+NEAR = {"phone_mic": {"listening": False, "idle_s": 60}, "desk_mic": {"enabled": True}, "paused": False, "private": False, "user_away_s": 5,
         "scenes": {"static": {"available": True, "age_s": 2}}}
 
 
@@ -13,7 +13,9 @@ def test_open_only_while_the_user_is_at_the_bench():
     assert should_listen(NEAR)
     for change in ({"desk_mic": {"enabled": False}}, {"paused": True}, {"private": True},
                    {"user_away_s": 500}, {"scenes": {"static": {"available": False}}},
-                   {"scenes": {"static": {"available": True, "age_s": 300}}}):
+                   {"scenes": {"static": {"available": True, "age_s": 300}}},
+                   {"phone_mic": {"listening": True, "idle_s": 60}},        # one mic at a time
+                   {"phone_mic": {"listening": False, "idle_s": 1}}):       # phone reconnecting
         assert not should_listen({**NEAR, **change}), change
     assert not should_listen({})
 

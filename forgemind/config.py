@@ -82,6 +82,7 @@ class Settings:
     system1: str = ""
     system1_min_conf: float = 0.96
     system1_verify: bool = True
+    wake_word: bool = False    # hands-free only acts on "Forge, ..."
     desk_mic: str = "MX Brio"    # input device name (cameras/desk_mic.py)
     zrok_name: str = ""       # reserved zrok name: a fixed phone address
     # spoken replies: "kokoro" (local neural voice, server/tts.py) or "" (phone's own voice)
@@ -138,6 +139,7 @@ class Settings:
             system1=_env("FM_SYSTEM1"),
             system1_min_conf=float(_env("FM_SYSTEM1_MIN_CONF", "0.96")),
             system1_verify=_bool("FM_SYSTEM1_VERIFY", True),
+            wake_word=_bool("FM_WAKE_WORD", False),
             desk_mic=_env("FM_DESK_MIC", "MX Brio"),
             zrok_name=_env("FM_ZROK_NAME"),
             tts=_env("FM_TTS"),

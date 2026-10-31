@@ -44,6 +44,7 @@ FINAL_TIMEOUT = 15.0
 class TurnHooks:
     partial: Optional[Callable[[str], None]] = None          # quick; schedules work
     turn: Optional[Callable[[str], Awaitable[dict]]] = None  # the agent's answer
+    addressed: Optional[Callable[[str], Optional[str]]] = None  # the request, or None: not for us
 
 
 def realtime_url(base_url):
@@ -159,7 +160,11 @@ class VoiceTranscribeRelay:
                     if not text:
                         continue
                     if hooks and hooks.turn:
-                        await self._serve_turn(phone, text, hooks, tasks)
+                        said = hooks.addressed(text) if hooks.addressed else text
+                        if said:
+                            await self._serve_turn(phone, said, hooks, tasks)
+                        else:
+                            await phone.send_json({"type": "heard", "text": text})
                     else:
                         await phone.send_json({"type": "turn", "text": text})
         except asyncio.TimeoutError:

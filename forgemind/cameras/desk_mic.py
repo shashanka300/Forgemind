@@ -2,11 +2,10 @@
 
     forgemind desk-mic                 # uses the first input device named like FM_DESK_MIC
 
-The mic is only open while all of these hold: the phone's Desk mic button is on, cameras
-aren't paused or private, the bench camera is streaming, and it saw the user within
-NEAR_S. It streams to the same hands-free relay as the phone, with source=desk. If the
-phone's mic hears the same sentence the server counts one turn, and the device that heard
-it first answers, so this client plays its replies on the PC speakers (muted meanwhile).
+One mic at a time: this one is only open while the phone's mic is off (for PHONE_IDLE_S) and
+the phone's Desk mic button is on, cameras aren't paused or private, the bench camera is
+streaming, and it saw the user within NEAR_S. Running both at once mixed the conversation
+(phone test, Oct 31). Replies to this mic play on the PC speakers (muted meanwhile).
 """
 import asyncio
 import io
@@ -19,6 +18,7 @@ import urllib.request
 import numpy as np
 
 NEAR_S = 120.0
+PHONE_IDLE_S = 5.0         # a phone reconnecting isn't a phone gone
 RATE = 16000
 FRAME_S = 0.02
 AFTER_SPEECH_S = 1.2       # output lags the end of playback
@@ -29,6 +29,9 @@ def should_listen(state):
     """May the mic be open? `state` is /api/state."""
     desk = state.get("desk_mic") or {}
     bench = (state.get("scenes") or {}).get("static") or {}
+    phone = state.get("phone_mic") or {}
+    if phone.get("listening", True) or phone.get("idle_s", 0) < PHONE_IDLE_S:
+        return False
     return bool(desk.get("enabled") and not state.get("paused") and not state.get("private")
                 and bench.get("available") and bench.get("age_s", 1e9) < 60
                 and state.get("user_away_s", 1e9) < NEAR_S)

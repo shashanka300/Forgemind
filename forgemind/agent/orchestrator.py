@@ -104,6 +104,27 @@ def is_cut_off(text):
     return not t.endswith((".", "?", "!")) and bool(_DANGLING.search(t))
 
 
+# Hands-free hears everything, including the user thinking aloud: it only acts on "Forge, ..."
+# and on what follows a reply for a few seconds. Hold-to-talk and typing don't need it.
+_WAKE = re.compile(r"^\W*(?:(?:hey|hi|ok|okay|so|alright|um|uh)\W+)*"
+                   r"(?:forge\s*mind|forgemind|forged|forges|forge)\b\W*", re.I)
+FOLLOW_UP_S = 8.0
+SPOKEN_CHARS_PER_S = 15.0   # how long a reply takes to say; the follow-up time starts after it
+# "Got it, phone only from here": the agent can't change mics, speakers or devices, and saying
+# so is a false promise (phone test, Oct 31). No tool does it, so the words are replaced.
+_DEVICE_WORD = re.compile(r"\b(?:audio|mic|mics|microphone|speakers?|devices?|phone|desk|bench)\b", re.I)
+_SETTING_PROMISE = re.compile(r"\b(?:going forward|from now on|from here|only|separate|independent|"
+                              r"staying on|stick to|switch(?:ing)? to)\b", re.I)
+CANT_CHANGE_SETUP = ("I can't change that myself. The Hands-free and Desk mic buttons on the phone "
+                     "choose which mic listens.")
+
+
+def promises_setup_change(reply):
+    t = reply.strip()
+    return (not t.endswith("?") and bool(_DEVICE_WORD.search(t)) and bool(_SETTING_PROMISE.search(t))
+            and bool(re.search(r"\b(?:got it|okay|ok|sure|i'll|i will|staying)\b", t, re.I)))
+
+
 HISTORY_TURNS = 8
 
 
@@ -128,6 +149,7 @@ class Agent:
         self._waiting = []                      # turns not started yet
         self._wait_lock = threading.Lock()
         self._last_turn = {}                    # source -> (ts, words)
+        self._follow_until = 0.0                # hands-free needs no wake word until then
         self._llm_ms = 0
         self.system1 = System1(ctx.settings, ctx.memory) if ctx.settings.system1 else None
         self.last_verify_thread = None
@@ -142,6 +164,7 @@ class Agent:
     def _remember(self, role, content):
         if role == "assistant":
             self._spoken.append((time.time(), _words(content)))
+            self._follow_until = time.time() + len(content) / SPOKEN_CHARS_PER_S + FOLLOW_UP_S
         self.ctx.memory.db.execute("INSERT INTO conversation(ts,role,content) VALUES(?,?,?)",
                                    (time.time(), role, content))
 
@@ -257,6 +280,20 @@ class Agent:
             self.ctx.hub.say(msg)
             self._remember("assistant", msg)
 
+    def addressed(self, text, peek=False):
+        """What a hands-free sentence asks of the assistant, or None if it wasn't talking to it.
+
+        `peek`: a partial transcript; nothing is logged.
+        """
+        m = _WAKE.match(text)
+        if m:
+            return text[m.end():].strip() or text
+        if time.time() < self._follow_until:
+            return text
+        if not peek:
+            self.ctx.memory.db.log_event("ignored", "inferred", {"text": text, "why": "no wake word"})
+        return None
+
     def _ignore(self, text, why):
         self.ctx.memory.db.log_event("ignored", "inferred", {"text": text, "why": why})
         return {"reply": "", "trace": [], "ignored": True, "ms": 0}
@@ -273,6 +310,10 @@ class Agent:
         """One user turn; each turn's timing and path go in the log (event `turn`)."""
         t0 = time.perf_counter()
         now = time.time()
+        m = _WAKE.match(text)
+        if m and not text[m.end():].strip():    # just "Forge"
+            self._remember("assistant", "Yes?")
+            return {"reply": "Yes?", "trace": [], "fast": True, "ms": 0}
         said = [w for ts, w in self._spoken if now - ts <= ECHO_WINDOW_S]
         heard = "" if _words(text) in [_words(a) for a in ACK_PHRASES] else strip_echo(text, said)
         if heard != text:
@@ -372,6 +413,9 @@ class Agent:
                     break
             if reply is None:
                 reply = trace[-1]["summary"] if trace else "Sorry, I got stuck on that."
+            if not trace and promises_setup_change(reply):
+                self.ctx.memory.db.log_event("guard", "inferred", {"claim": reply[:200], "setup": True})
+                reply = CANT_CHANGE_SETUP
             self._remember("assistant", reply)
             self._extract_notes(text)
             return {"reply": reply, "trace": trace,
