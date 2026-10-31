@@ -89,10 +89,10 @@ def test_teach_asks_segmenter_when_frame_missed_it(rt):
     assert out["views"] == ["asked"] and out["entity"]["concept"] == "hex key"
 
 
-def test_teach_refuses_when_it_cannot_pick_out_the_object(rt):
+def test_teach_uses_the_middle_when_it_cannot_pick_out_the_object(rt):
     rt.perception.process("mobile", scene([], tag=2), ts=time.time())
     out = rt.agent.tools.run("teach_object", {"name": "mystery part"})
-    assert "can't pick out" in out["error"] and rt.memory.registry.find("mystery part") == []
+    assert out["views"] == ["centre"] and rt.memory.registry.find("mystery part")
 
 
 def test_small_talk_does_not_teach(rt):

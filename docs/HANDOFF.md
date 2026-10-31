@@ -110,6 +110,13 @@ Not covered by these: real audio, read_closeup, an alert firing live. Live Spark
 prompt tokens to explain it. Researched alternatives (YOLOE visual prompts, OWLv2, SAM 3 exemplars
 across images): kept SAM + PE for now, YOLOE is the first thing to try if recall stays poor.
 
+## Listening restored (Oct 31, test 3)
+
+The wake word and filters dropped 20 of 33 real sentences: it felt deaf. `FM_WAKE_WORD=false` (code stays), only
+pure filler is dropped, echo needs 5+ words at a sentence edge within 20 s, teach falls back to the middle of the
+view and shows the box instead of refusing. Check filters with real sentences (`eval/phone_test_oct31.txt`), never
+ones written with the feature in mind.
+
 ## Where to pick up (Oct 30, end of session)
 
 Nothing left to build before the real phone test; everything below needs the user:

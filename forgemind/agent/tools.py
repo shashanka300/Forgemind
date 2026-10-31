@@ -397,15 +397,15 @@ class ToolBox:
         crops, hows, boxes, concept = [], [], [], a.concept
         for f in frames:
             box, c, how = self._teach_target(f, concept, a.name)
-            if how == "centre":             # the middle of the view may be the background
-                continue
-            concept = concept or c
+            concept = concept or (c if how != "centre" else None)
             crops.append(p.crop(f["image"], box))
             hows.append(how)
             boxes.append(box)
-        if not crops:
-            raise ToolError(f"I can't pick out the {a.name}. Hold it closer, in the middle of "
-                            "the view, and say its name again.")
+        # Better views only, if there are any; otherwise the middle of the view, with the
+        # box shown: refusing felt broken (phone test, Oct 31), and a wrong one can be corrected.
+        good = [i for i, h in enumerate(hows) if h != "centre"]
+        if good:
+            crops, boxes, hows = [crops[i] for i in good], [boxes[i] for i in good], [hows[i] for i in good]
         keyframe = p._save_keyframe("mobile", frames[0]["image"], time.time(), force=True)
         try:
             v = self.mem.registry.teach(a.name, crops, concept or "object", keyframe)

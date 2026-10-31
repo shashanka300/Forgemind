@@ -525,7 +525,7 @@ function handsFree(on) {
     let ready = false;
     sock.onmessage = ev => {
       const m = JSON.parse(ev.data);
-      if (m.type === "ready") { ready = true; $("hud").textContent = 'listening: say "Forge, ..."'; }
+      if (m.type === "ready") { ready = true; $("hud").textContent = "listening…"; }
       else if (m.type === "partial") $("text").value = m.text;
       else if (m.type === "heard") $("text").value = "";     // not addressed to the assistant
       else if (m.type === "turn" && m.server) { $("text").value = ""; serverTurns[m.text] = beginTurn(m.text); }

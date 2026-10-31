@@ -164,8 +164,8 @@ def test_confident_but_not_a_plain_request_goes_to_spark(rt, text, decision):
 
 
 @pytest.mark.parametrize("text,ignored", [
-    ("um", True), ("Oh", True), ("So,", True), ("last", True), ("appropriately.", True),
-    ("Hey, you", True), ("alright", True),
+    ("um", True), ("Oh", True), ("So,", True), ("uh-huh", True), ("Hey, you", True), ("alright", True),
+    ("last", False), ("Did you hear me?", False),
     ("thanks", False), ("yes", False), ("where is my hex key?", False), ("okay fine then.", False),
 ])
 def test_fragments_get_no_model_call(rt, text, ignored):
@@ -364,3 +364,10 @@ def test_setup_promise_is_replaced_by_the_truth(rt):
     agent = fast_agent(rt, {}, Promises())
     agent.system1 = None
     assert agent.handle("reply on the phone alone please")["reply"].startswith("I can't change that")
+
+
+def test_a_correction_quoting_a_reply_survives():
+    from forgemind.agent.orchestrator import _words, strip_echo
+    said = [_words("That's your baby spider, it's the baby spider.")]
+    text = "that's not the baby spider, it's the baby biter"
+    assert strip_echo(text, said) == text

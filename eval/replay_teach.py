@@ -36,8 +36,12 @@ def main():
     ap.add_argument("root")
     ap.add_argument("--names", default="")
     ap.add_argument("--out", default="replay_teach.jpg")
+    ap.add_argument("--min-sim", type=float, default=None, help="override CANDIDATE_MIN_SIM")
     ap.add_argument("--after", type=float, default=40, help="seconds of frames to check after teaching")
     a = ap.parse_args()
+    if a.min_sim:
+        import forgemind.perception.pipeline as pipe
+        pipe.CANDIDATE_MIN_SIM = a.min_sim
     db = sqlite3.connect(f"file:{a.root}/forgemind.sqlite?mode=ro", uri=True)
     want = [n.strip().lower() for n in a.names.split(",") if n.strip()]
     teach, seen = [], set()

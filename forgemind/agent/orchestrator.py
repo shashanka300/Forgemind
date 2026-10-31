@@ -50,17 +50,13 @@ def is_compound(text):
     return bool(m) and len(re.findall(r"[a-z]{2,}", text[:m.start()].lower())) >= 2
 
 
-# Hands-free hears everything: "um", "Oh", "last" are not requests. No model call, no reply.
-_FILLER = {"um", "umm", "uh", "uhh", "ah", "oh", "hmm", "mm", "so", "and", "but", "alright",
+# Only pure filler gets no reply: dropping more made it feel deaf (phone test 3, Oct 31).
+_FILLER = {"um", "umm", "uh", "uhh", "huh", "ah", "oh", "hmm", "mm", "so", "and", "but", "alright",
            "hey", "like", "well", "the", "you", "see"}
-_ONE_WORD_OK = {"yes", "yeah", "no", "nope", "thanks", "hello", "hi", "stop", "help", "bye",
-                "okay", "ok", "sure", "next", "done", "cancel", "undo"}
 
 
 def is_fragment(text):
-    words = re.findall(r"[a-z0-9.']+", text.lower().replace(".", " "))
-    rest = [w for w in words if w not in _FILLER]
-    return not rest or (len(rest) == 1 and len(words) <= 2 and rest[0] not in _ONE_WORD_OK)
+    return all(w in _FILLER for w in re.findall(r"[a-z0-9']+", text.lower().replace("-", " ")))
 
 
 # A sentence cut off by the transcriber ("this is", "so just have a"): the rest usually
@@ -71,9 +67,10 @@ DANGLING_WAIT_S = 1.5
 CUT_OFF_MAX_WORDS = 4       # longer ones may still mean something: Spark gets them after the wait
 # The assistant's own voice picked up by a mic (phone test: ends of replies came back as
 # "the user said ..."). The window covers long replies and queued speech.
-ECHO_WINDOW_S = 30.0
-# Four words: real commands quote replies ("First: wire the divider" -> "log wire the divider").
-ECHO_MIN_WORDS = 4
+ECHO_WINDOW_S = 20.0
+# Five words: people quote replies ("First: wire the divider" -> "log wire the divider";
+# "it's the baby spider" -> "that's not the baby spider, it's the baby biter").
+ECHO_MIN_WORDS = 5
 ACK_PHRASES = ("Let me check.", "One moment.")     # spoken by the phone (phone.html ackFor)
 # The same sentence from a second mic within this long is one turn.
 DUPLICATE_WINDOW_S = 4.0
