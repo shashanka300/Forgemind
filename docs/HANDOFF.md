@@ -2,8 +2,7 @@
 
 Where the build stands and what to do next. Update this at the end of each work session.
 
-**Last updated:** Oct 30, 2026 (System 1 fast path with fine-tuned Laya, server-answered voice turns,
-Kokoro voice "am_michael"; all on in `.env`, 110 tests pass). Waiting on the user for the real phone test. **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
+**Last updated:** Oct 31, 2026, end of session. Next: live test of the "listening restored" build (never run live yet), demo script only. Fixed link https://shashanka-forgemind.shares.zrok.io/ , token in `.env`. Start with launch config `forgemind-live` + `static-cam --device 0` + `desk-mic`; all off while building. **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
 **Branch:** `main`. Check `git status -sb` for unpushed commits.
 
 ## Status
@@ -111,6 +110,7 @@ prompt tokens to explain it. Researched alternatives (YOLOE visual prompts, OWLv
 across images): kept SAM + PE for now, YOLOE is the first thing to try if recall stays poor.
 
 ## Listening restored (Oct 31, test 3)
+Open at end of session: held objects are labelled in few frames (min-sim 0.85 vs 0.90 barely differs on replay: clippers 7/63 both, timer 11 vs 9 of 52; kept 0.90; the frames don't show how long each object stayed in view); keyframe pruning deletes frames before they can be replayed; live Spark 3.2-3.5 s vs 1.5 s in rehearsal, cause unknown (prompt ~3.7k tokens is not it); Desk mic button sits in `.controls`, the user couldn't find it: unchecked on a phone. Memory cleared; backups `forgemind-data.bak-*` (git-ignored, deletable, hold camera stills of the user's home).
 
 The wake word and filters dropped 20 of 33 real sentences: it felt deaf. `FM_WAKE_WORD=false` (code stays), only
 pure filler is dropped, echo needs 5+ words at a sentence edge within 20 s, teach falls back to the middle of the
