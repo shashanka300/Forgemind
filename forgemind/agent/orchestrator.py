@@ -96,6 +96,12 @@ def strip_echo(text, spoken):
     return " ".join(tokens)
 
 
+def is_inside(words, said):
+    """Is `words` (2+) a run of consecutive words in `said`?"""
+    n = len(words)
+    return n >= 2 and any(said[i:i + n] == words for i in range(len(said) - n + 1))
+
+
 def is_cut_off(text):
     t = text.strip()
     return not t.endswith((".", "?", "!")) and bool(_DANGLING.search(t))
@@ -143,6 +149,12 @@ def promises_setup_change(reply):
 VISUAL = re.compile(r"\b(?:see|seeing|look|looking|looks|recogni[sz]e|detect|in front|screen|in view|"
                     r"camera|holding|show(?:ing)?|(?:what|is|are)\s+(?:this|that|these|those)|what's that)\b", re.I)
 FRAME_MAX_AGE_S = 10.0
+# A visual conversation goes on after the sentence with "see" in it: "can you recognize the cooler?"
+# then "white cooler." went blind and contradicted itself (phone test 6).
+VISUAL_CARRY_S = 30.0
+LABELLING = re.compile(r"\b(?:label|register|learn|recogni[sz]e|remember|name|call|teach)\b", re.I)
+ASKED_NAME = re.compile(r"\b(?:what|which)\s+(?:name|should i call)\b|\bwhat(?:'s| is)\s+it called\b", re.I)
+ANSWER_NAME_MAX_WORDS = 4
 # "Okay, got your secondary desk" with no tool called: nothing was saved.
 SAVE_CLAIM = re.compile(r"\b(?:got your|noted|i'll remember|i will remember|saved|i've remembered|"
                         r"i've recorded|i'll keep that in mind)\b", re.I)
@@ -188,6 +200,9 @@ class Agent:
         self._last_turn = {}                    # source -> (ts, words)
         self._follow_until = 0.0                # hands-free needs no wake word until then
         self._last_usage = {}
+        self._visual_until = 0.0
+        self._speaking_until = 0.0
+        self._last_reply = ""
         self._frame_sent = False
         self._llm_ms = 0
         self.system1 = System1(ctx.settings, ctx.memory) if ctx.settings.system1 else None
@@ -203,6 +218,8 @@ class Agent:
     def _remember(self, role, content):
         if role == "assistant":
             self._spoken.append((time.time(), _words(content)))
+            self._speaking_until = time.time() + len(content) / SPOKEN_CHARS_PER_S + 1.5
+            self._last_reply = content
             self._follow_until = time.time() + len(content) / SPOKEN_CHARS_PER_S + FOLLOW_UP_S
         self.ctx.memory.db.execute("INSERT INTO conversation(ts,role,content) VALUES(?,?,?)",
                                    (time.time(), role, content))
@@ -210,8 +227,11 @@ class Agent:
     def _user_message(self, text, prefix=""):
         llm, p = self.ctx.llm, self.ctx.perception
         self._frame_sent = False
+        asked = VISUAL.search(text) or LABELLING.search(text)
+        if asked:
+            self._visual_until = time.time() + VISUAL_CARRY_S
         if not self.ctx.settings.send_frames and getattr(llm, "supports_vision", False) \
-                and self.ctx.settings.vision_on_ask and VISUAL.search(text):
+                and self.ctx.settings.vision_on_ask and (asked or time.time() < self._visual_until):
             view = p.view_frame(FRAME_MAX_AGE_S)
             if view:
                 self._frame_sent = True
@@ -267,8 +287,22 @@ class Agent:
 
     # -- System 1 fast path ----------------------------------------------------
 
+    def _answered_name(self, text):
+        """It just asked what to call the thing, and this is the answer: teach it."""
+        if not ASKED_NAME.search(self._last_reply) or len(text.split()) > ANSWER_NAME_MAX_WORDS:
+            return None
+        return text.strip().rstrip(".!")
+
     def _fast_path(self, text, messages, t0):
         """Answer with the decision model and the tool alone, or None for Spark."""
+        name = self._answered_name(text)
+        if name:
+            out = self.tools.run("teach_object", {"name": name})
+            if out.get("summary"):
+                self._remember("assistant", out["summary"])
+                return {"reply": out["summary"], "fast": True, "ms": round((time.perf_counter() - t0) * 1000),
+                        "trace": [{"tool": "teach_object", "args": {"name": name}, "summary": out["summary"],
+                                   "error": out.get("error"), "fast": True}]}
         if not self.system1:
             return None
         try:
@@ -364,6 +398,8 @@ class Agent:
             return {"reply": "Yes?", "trace": [], "fast": True, "ms": 0}
         said = [w for ts, w in self._spoken if now - ts <= ECHO_WINDOW_S]
         heard = "" if _words(text) in [_words(a) for a in ACK_PHRASES] else strip_echo(text, said)
+        if heard and now < self._speaking_until and said and is_inside(_words(heard), said[-1]):
+            heard = ""                          # a short piece of what it is saying right now
         if heard != text:
             self.ctx.memory.db.log_event("ignored", "inferred", {"text": text, "why": "echo",
                                                                  "kept": heard})

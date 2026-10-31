@@ -397,7 +397,8 @@ def test_visual_question_sends_one_phone_frame(rt):
     agent.system1 = None
     assert agent.handle("what do you see right now?")["reply"] == "A keyboard and a mug."
     assert has_image(spark.messages[-1])
-    agent.handle("set R2 to 10k")
+    agent._visual_until = 0                      # the visual conversation is over
+    agent.handle("don't log that")
     assert not has_image(spark.messages[-1])     # other turns send no picture
 
 
@@ -506,3 +507,37 @@ def test_paused_cameras_are_named_not_nothing_i_recognise(rt):
     rt.perception.paused = True
     assert "paused" in agent.handle("what do you see?")["reply"] and agent.ctx.llm.calls == 0
     assert "paused" in rt.agent.tools.run("inspect_scene", {"camera": "mobile"})["summary"]
+
+
+def test_picture_carries_on_through_a_visual_conversation(rt):
+    rt.perception.process("mobile", scene([], tag=2), ts=time.time())
+    spark = VisionStub("A white cooler.")
+    agent = fast_agent(rt, {}, spark)
+    agent.system1 = None
+    agent.handle("can you recognize the cooler?")
+    assert has_image(spark.messages[-1])
+    rt.perception.process("mobile", scene([], tag=2), ts=time.time())
+    agent.handle("get at it")
+    assert has_image(spark.messages[-1])
+    agent._visual_until = 0
+    agent.handle("set R2 to 10k")
+    assert not has_image(spark.messages[-1])
+
+
+def test_answering_what_name_teaches_at_once(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    agent = fast_agent(rt, {})
+    agent.system1 = None
+    agent._remember("assistant", "Sure, what name should I save for what's in front of the phone?")
+    agent._speaking_until = 0
+    out = agent.handle("white cooler.")
+    assert out["fast"] and agent.ctx.llm.calls == 0 and rt.memory.registry.find("white cooler")
+
+
+def test_a_short_piece_of_what_it_is_saying_is_echo(rt):
+    agent = fast_agent(rt, {})
+    agent._remember("assistant", "Yes, go ahead, I'm listening.")
+    assert agent.handle("go ahead")["ignored"]
+    agent._speaking_until = 0
+    agent.system1 = None
+    assert not agent.handle("go ahead").get("ignored")      # after it has finished: that's the user

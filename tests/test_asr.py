@@ -172,3 +172,16 @@ def test_phone_mic_open_closes_the_desk_route(rt):
             got = [ws.receive_json() for _ in range(4)]
             ws.send_text(json.dumps({"type": "end"}))
     assert not [m for m in got if m["type"] in ("turn", "reply")]
+
+
+def test_a_gap_in_the_phones_audio_becomes_silence(rt):
+    import time
+
+    import forgemind.server.asr as asr
+    up = FakeEndpointing()
+    with _client(rt, up) as c:
+        with c.websocket_connect("/ws/asr?t=secret-token&mode=hands_free") as ws:
+            ws.receive_json()
+            time.sleep(asr.AUDIO_GAP_S * 3)          # the phone stalls
+            ws.send_text(json.dumps({"type": "end"}))
+    assert up.audio and set(up.audio) == {0} and len(up.audio) >= len(asr.GAP_SILENCE) * 2

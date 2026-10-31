@@ -109,6 +109,13 @@ Not covered by these: real audio, read_closeup, an alert firing live. Live Spark
 prompt tokens to explain it. Researched alternatives (YOLOE visual prompts, OWLv2, SAM 3 exemplars
 across images): kept SAM + PE for now, YOLOE is the first thing to try if recall stays poor.
 
+## Test 6 fixes: lost words, going blind (branch `yoloe`)
+
+Sentences lost their starts because the mic was muted while it spoke + 1.2 s; "Ingress audio slower than real-time" ended
+sessions. Now: mic stays on with echo cancellation, talking over it stops it, 10 audio packets a second, the relay fills gaps with
+silence, ack only after 2 s. Pictures carry 30 s through a visual conversation and go with labelling words. Answering "what name?"
+teaches. UNVERIFIED live: whether echo cancellation brings device switching back, and echo with the mic open.
+
 ## Test 5 fixes (branch `yoloe`)
 
 Test 5 lost 5 minutes to Pause + Private tapped at 19:23 while looking for a "Desk button" Spark invented. Now: red banner (tap

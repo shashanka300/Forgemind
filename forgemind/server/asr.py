@@ -38,6 +38,8 @@ from typing import Awaitable, Callable, Optional
 MODEL = "muse-voice-transcribe-1.0"
 ACK_TIMEOUT = 10.0
 FINAL_TIMEOUT = 15.0
+AUDIO_GAP_S = 0.25
+GAP_SILENCE = b"\x00\x00" * int(16000 * AUDIO_GAP_S)
 
 
 @dataclass
@@ -99,7 +101,7 @@ class VoiceTranscribeRelay:
             if ack.get("type") == "error" or "sessionId" not in ack:
                 raise RuntimeError(ack.get("message") or f"bad handshake reply: {ack}")
             await phone.send_json({"type": "ready", "hands_free": hands_free})
-            pump = asyncio.create_task(self._pump_audio(phone, upstream))
+            pump = asyncio.create_task(self._pump_audio(phone, upstream, fill=hands_free))
             if hands_free:
                 await self._read_turns(phone, upstream, pump, hooks)
                 return None
@@ -132,9 +134,20 @@ class VoiceTranscribeRelay:
             from forgemind.providers.budget import ASR_HOUR_USD
             self.ledger.add("asr", MODEL, secs, secs / 3600 * ASR_HOUR_USD)
 
-    async def _pump_audio(self, phone, upstream):
+    async def _pump_audio(self, phone, upstream, fill=False):
+        """Phone -> transcriber. `fill`: a gap in the phone's audio (Wi-Fi, the tunnel) becomes
+        silence, or the transcriber ends the session ("Ingress audio slower than real-time")."""
+        pending = None
         while True:
-            msg = await phone.receive()
+            pending = pending or asyncio.ensure_future(phone.receive())
+            if fill:
+                done, _ = await asyncio.wait({pending}, timeout=AUDIO_GAP_S)
+                if not done:
+                    await upstream.send(GAP_SILENCE)
+                    self._bytes += len(GAP_SILENCE)
+                    continue
+            msg = await pending
+            pending = None
             if msg.get("type") == "websocket.disconnect":
                 break
             if msg.get("bytes"):
