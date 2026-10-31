@@ -78,7 +78,7 @@ def test_teach_uses_several_recent_views(rt):
                               ts=now - 2 + i)
     out = rt.agent.tools.run("teach_object", {"name": "2.5 mm hex key"})
     assert out["views"] == ["detected"] * 3 and out["entity"]["examples"] == 3
-    assert "3 views" in out["summary"] and "Turn it" not in out["summary"]
+    assert "views" not in out["summary"]
     assert out["entity"]["concept"] == "hex key"
 
 
@@ -87,7 +87,6 @@ def test_teach_asks_segmenter_when_frame_missed_it(rt):
     rt.perception.recent[-1]["detections"] = []          # the live detector missed it
     out = rt.agent.tools.run("teach_object", {"name": "small key", "concept": "hex key"})
     assert out["views"] == ["asked"] and out["entity"]["concept"] == "hex key"
-    assert "Turn it" in out["summary"]
 
 
 def test_teach_refuses_when_it_cannot_pick_out_the_object(rt):
@@ -266,3 +265,62 @@ def test_a_different_tape_is_not_this_tape(rt):
     rt.agent.tools.run("teach_object", {"name": "paper tape"})
     assert not [v for v in rt.memory.registry.find("measurement tape") if v["label"] == "paper tape"]
     assert rt.memory.registry.find("tape")[0]["label"] == "paper tape"
+
+
+def test_teach_picks_what_is_in_the_hand():
+    from forgemind.agent.tools import pick_held
+    hand = (.5, .6, .9, 1.0)
+    tiny_noise = (.02, .02, .05, .05)
+    held = (.35, .4, .6, .7)                 # big, touching the hand
+    nail = (.6, .7, .7, .8)                  # on the hand itself
+    far = (.05, .4, .25, .6)
+    assert pick_held([tiny_noise, held, nail, far], [hand]) == held
+    assert pick_held([], [hand]) is None
+
+
+class CandidateSegmenter:
+    """Finds a green block only as a "small object", like an object SAM has no word for."""
+    name = "candidates"
+
+    def segment(self, image, concepts):
+        from conftest import ColorSegmenter
+        from forgemind.providers.base import Detection
+        found = ColorSegmenter().segment(image, ["hex key"])
+        return [Detection("small object", d.box, 0.8) for d in found] if "small object" in concepts else []
+
+
+def test_taught_object_is_labelled_though_sam_has_no_word_for_it(rt):
+    img = scene([("hex key", .4, .4, .6, .6)], tag=2)
+    rt.settings.concepts = ["person"]
+    rt.perception.seg = CandidateSegmenter()
+    rt.perception.process("mobile", img, ts=time.time())
+    assert rt.perception.latest["mobile"]["detections"] == []
+    assert "error" not in rt.agent.tools.run("teach_object", {"name": "biter"})
+    rt.perception.process("mobile", img, ts=time.time(), force=True)
+    assert [d["label"] for d in rt.perception.latest["mobile"]["detections"]] == ["biter"]
+
+
+def test_candidates_never_create_objects(rt):
+    img = scene([("hex key", .4, .4, .6, .6)], tag=2)
+    rt.settings.concepts = ["person"]
+    rt.perception.seg = CandidateSegmenter()
+    rt.memory.registry.teach("other", [scene([("multimeter", .2, .2, .8, .8)])], "object")
+    rt.perception.process("mobile", img, ts=time.time())
+    assert [v["label"] for v in rt.memory.registry.list()] == ["other"]
+
+
+def test_one_frame_of_smoke_is_no_alarm(rt):
+    from forgemind.providers.base import Detection
+
+    class Smoke:
+        name = "smoke"
+
+        def segment(self, image, concepts):
+            return [Detection("smoke", (.2, .2, .4, .4), 0.6)]
+    rt.perception.seg = Smoke()
+    t = time.time()
+    rt.perception.process("static", scene([]), ts=t, force=True)
+    assert "smoke" not in rt.safety.last_seen
+    rt.perception.process("static", scene([]), ts=t + 2, force=True)
+    rt.perception.process("static", scene([]), ts=t + 4, force=True)
+    assert "smoke" in rt.safety.last_seen

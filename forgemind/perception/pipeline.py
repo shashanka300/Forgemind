@@ -20,6 +20,7 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from forgemind.config import HAZARD_CONCEPTS, PRESENCE_CONCEPTS
+from forgemind.providers.base import Detection
 from forgemind.perception import bench
 from forgemind.perception.zones import ZoneTracker
 
@@ -29,6 +30,16 @@ STATIC_FORCE_EVERY_S = 15.0
 # The bench camera sends a few frames a second for the live preview; detection stays at
 # about one a second however much the scene is moving.
 STATIC_MIN_EVERY_S = 1.0
+# SAM only finds what it is asked for, and FM_CONCEPTS can't list everything the user owns. So
+# once something is taught, each frame also asks for its concept and for "small object". These
+# candidates never create objects (they fire on everything): one counts only if it looks like
+# a taught object, more strictly than a named detection does.
+CANDIDATE_CONCEPT = "small object"
+CANDIDATE_MIN_SIM = 0.90
+MAX_CANDIDATES = 24
+MAX_TAUGHT_CONCEPTS = 10
+# One frame of "smoke" isn't smoke (phone test, Oct 31: a false critical alert).
+HAZARD_MIN_FRAMES = 3
 # A frame "changed" when this fraction of 96x72 pixels moved by > PIXEL_DELTA
 # grey levels: a small object moving trips it, webcam noise doesn't.
 CHANGE_FRACTION = 0.004
@@ -66,6 +77,10 @@ RECENT_FRAMES = 8
 def _unit(v):
     v = np.asarray(v, np.float32)
     return v / (np.linalg.norm(v) or 1.0)
+
+
+def box_area(box):
+    return max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
 
 
 def covered(box, others):
@@ -134,6 +149,7 @@ class Perception:
         self.phone_zone = ZoneTracker(settings.zones)
         self.gate = ChangeGate()
         self.newest = {}
+        self.hazard_frames = {}
         self.bench_dirty = False
         self.latest = {}             # camera -> {"ts", "image", "detections", "zone"}
         self.recent = collections.deque(maxlen=RECENT_FRAMES)   # phone frames, newest last
@@ -222,7 +238,8 @@ class Perception:
             if not force and (too_soon or not (changed or stale or confirming)):
                 prev = self.latest.get(camera, {})
                 for d in prev.get("detections", []):   # unchanged scene: still there
-                    if d.get("kind") in ("object", "hazard"):
+                    if d.get("kind") == "object" or (d.get("kind") == "hazard" and
+                                                     self.hazard_frames.get(d["concept"], 0) >= HAZARD_MIN_FRAMES):
                         self.safety.seen(d["concept"], ts)
                         if d.get("label") and d["label"] != d["concept"]:
                             self.safety.seen(d["label"], ts)
@@ -233,7 +250,15 @@ class Perception:
         self.last_processed[camera] = ts
         if camera == "static":
             self.bench_dirty = False
-        dets = one_label_per_object(self.seg.segment(image, self.s.concepts))
+        extra = []
+        if not self.private:
+            extra = [c for c in self.mem.registry.taught_concepts() if c not in self.s.concepts]
+            extra = extra[:MAX_TAUGHT_CONCEPTS]
+            if self.mem.registry.any_taught():
+                extra.append(CANDIDATE_CONCEPT)
+        found = self.seg.segment(image, list(self.s.concepts) + extra)
+        dets = one_label_per_object([d for d in found if d.concept not in extra])
+        candidates_in = [d for d in found if d.concept in extra]
         keyframe = None if self.private else self._save_keyframe(camera, image, ts)
 
         out_dets, events, claimed = [], [], set()
@@ -241,9 +266,16 @@ class Perception:
         occluders = [d.box for d in dets if d.concept in PRESENCE_CONCEPTS]
         candidates = []
         dets = sorted(dets, key=lambda d: -d.score)
+        hazards_ok = (self._hazard_confirmed({d.concept for d in dets if d.concept in HAZARD_CONCEPTS})
+                      if camera == "static" else set())
         # one batched embedding call for every object crop in the frame
         objs = [d for d in dets if d.concept not in PRESENCE_CONCEPTS
                 and d.concept not in HAZARD_CONCEPTS] if not self.private else []
+        taken = self._taught_candidates(image, candidates_in, objs)
+        if taken:
+            dets = dets + [d for d, _ in taken]
+            objs = objs + [d for d, _ in taken]
+        forced = {id(d): eid for d, eid in taken}
         vecs = dict(zip(map(id, objs), self.emb.embed_images([self.crop(image, d.box)
                                                               for d in objs]))) if objs else {}
         for d in dets:
@@ -254,7 +286,7 @@ class Perception:
                 item["kind"] = "presence"
             elif d.concept in HAZARD_CONCEPTS:
                 item["kind"] = "hazard"
-                if camera == "static":
+                if camera == "static" and d.concept in hazards_ok:
                     self.safety.seen(d.concept, ts)
             elif not self.private:
                 region = region_of(d.box) if camera == "static" else None
@@ -262,8 +294,11 @@ class Perception:
                     # make sure a first sighting/move has a picture to show
                     keyframe = self._save_keyframe(camera, image, ts, force=True)
                 vec = _unit(vecs[id(d)])
-                eid, _ = self.mem.registry.match(d.concept, vec, camera, zone, region, ts,
-                                                 exclude=claimed)
+                if id(d) in forced:
+                    eid = forced[id(d)]
+                else:
+                    eid, _ = self.mem.registry.match(d.concept, vec, camera, zone, region, ts,
+                                                     exclude=claimed | set(forced.values()))
                 if eid is None:
                     held = camera == "static" and covered(d.box, occluders) >= HELD_OVERLAP
                     if not held:
@@ -367,6 +402,31 @@ class Perception:
                 events.append({"type": "not_found", "entity_id": eid, "label": c["label"],
                                "zone": zone})
         return events
+
+    def _taught_candidates(self, image, candidates, named):
+        """[(detection, entity id)]: the best-looking candidate per taught object."""
+        fresh = sorted((d for d in candidates if box_area(d.box) <= MAX_OBJECT_AREA
+                        and not any(iou(d.box, n.box) >= 0.7 for n in named)),
+                       key=lambda d: -d.score)[:MAX_CANDIDATES]
+        if not fresh:
+            return []
+        vecs = self.emb.embed_images([self.crop(image, d.box) for d in fresh])
+        best = {}
+        for d, v in zip(fresh, vecs):
+            v = _unit(v)
+            eid, sim = self.mem.registry.match_taught(v, CANDIDATE_MIN_SIM)
+            if eid is not None and sim > best.get(eid, (0, None))[0]:
+                best[eid] = (sim, d)
+        out = []
+        for eid, (_, d) in best.items():
+            e = self.mem.registry.get(eid)
+            out.append((Detection(e["concept"], d.box, d.score), eid))
+        return out
+
+    def _hazard_confirmed(self, concepts_now):
+        """Hazards seen on the bench for HAZARD_MIN_FRAMES processed frames in a row."""
+        self.hazard_frames = {c: self.hazard_frames.get(c, 0) + 1 for c in concepts_now}
+        return {c for c, n in self.hazard_frames.items() if n >= HAZARD_MIN_FRAMES}
 
     def _confirmed(self, camera, d, vec, ts):
         """Was this unmatched detection also a candidate in the previous frame?"""

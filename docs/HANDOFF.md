@@ -96,6 +96,20 @@ Wake word (`FM_WAKE_WORD=true`): hands-free only acts on "Forge, ..." plus follo
 reply; hold-to-talk and typing don't need it. Agent can't promise setup changes (`promises_setup_change`
 replaces the reply). `find` no longer merges "measurement tape" with "paper tape".
 
+## Recognising taught objects, demo focus (Oct 31)
+
+Focus agreed with the user: make the demo script reliable; casual chat stays basic.
+SAM only finds what it's asked for, so unlisted taught objects never got a box. Now each frame also asks
+for taught concepts and "small object"; these candidates never create objects and count only at PE
+similarity >= 0.90 to a taught view (`_taught_candidates`). Teach picks: the said name/concept via SAM,
+then "object" by the hand, then "small object" (`pick_held`). Known miss: objects SAM has no word for and
+whose name doesn't help ("baby's biter"; "baby teether" works). Smoke alarm needs 3 frames in a row.
+Wake word works anywhere in a sentence. Test before handing over: `eval/replay_teach.py` (saved frames, look at
+the sheet) and `eval/demo_rehearsal.py` (13/13: Spark median 1.5 s, prompt ~3.2k tokens, frame ~265 ms).
+Not covered by these: real audio, read_closeup, an alert firing live. Live Spark was 3.5 s; turn events now log
+prompt tokens to explain it. Researched alternatives (YOLOE visual prompts, OWLv2, SAM 3 exemplars
+across images): kept SAM + PE for now, YOLOE is the first thing to try if recall stays poor.
+
 ## Where to pick up (Oct 30, end of session)
 
 Nothing left to build before the real phone test; everything below needs the user:

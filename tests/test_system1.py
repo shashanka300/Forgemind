@@ -323,7 +323,9 @@ def test_echo_filter_never_cuts_the_middle_of_a_sentence():
 @pytest.mark.parametrize("text,want", [
     ("Forge, where is my hex key?", "where is my hex key?"), ("hey forge where's the tape", "where's the tape"),
     ("ok ForgeMind, read the meter", "read the meter"), ("so I think I'll measure this next", None),
-    ("the forge is hot", None), ("Forge", "Forge"),
+    ("and hey Forge what do you see now?", "what do you see now?"),
+    ("I mean can you hey Forge can you recognize anything", "can you recognize anything"),
+    ("where's my tape, Forge?", "where's my tape,"), ("Forge", "Forge"),
 ])
 def test_wake_word(rt, text, want):
     assert rt.agent.addressed(text) == want
@@ -345,7 +347,8 @@ def test_just_the_wake_word_gets_an_answer(rt):
 @pytest.mark.parametrize("reply,bad", [
     ("Got it, phone only from here.", True), ("Got it, I'll listen from the closest device only.", True),
     ("Got it, I'll keep the bench and phone audio separate going forward.", True),
-    ("Got it, staying on the phone.", True), ("I'm listening — from the phone only?", False),
+    ("Got it, staying on the phone.", True), ("Understood, I'll stick to your phone.", True),
+    ("I'm listening — from the phone only?", False),
     ("Point the phone at it and I'll check.", False), ("Paris.", False),
 ])
 def test_setup_promises_are_caught(reply, bad):

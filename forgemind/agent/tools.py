@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from forgemind import reports
 from forgemind.memory.registry import TeachConflict
+from forgemind.perception.pipeline import CANDIDATE_CONCEPT, covered
 from forgemind.providers.openai_compat import image_part
 
 READ_PROMPT = """You read instrument displays from a photo. Target: {target}.
@@ -344,7 +345,7 @@ class ToolBox:
             s = f"I'll alert you if I see {a.concept} on the bench."
         return {"watch": w, "summary": s}
 
-    def _teach_target(self, frame, concept):
+    def _teach_target(self, frame, concept, name=None):
         """(box, concept, how) of the object being shown in one phone frame.
 
         Prefer a detection near the centre (of the named concept if given);
@@ -352,19 +353,33 @@ class ToolBox:
         the centre of the view is the last resort.
         """
         objs = [d for d in frame["detections"] if d.get("kind") == "object"]
-        if concept:
-            objs = [d for d in objs if d["concept"] == concept] or objs
-        if objs:
-            d = min(objs, key=_off_centre)
-            return d["box"], concept or d["concept"], "detected"
-        if concept:
-            try:
-                dets = self.ctx.perception.seg.segment(frame["image"], [concept])
-            except Exception:
-                dets = []
-            if dets:
-                d = min(dets, key=lambda d: _off_centre({"box": d.box}))
-                return d.box, concept, "asked"
+        named = [d for d in objs if d["concept"] == concept] if concept else []
+        if named:
+            d = min(named, key=_off_centre)
+            return d["box"], concept, "detected"
+        seg = self.ctx.perception.seg
+        # The words first: SAM knows many things by name ("timer", "keyboard"). Then what's by
+        # the hand: "object" gives few solid boxes, "small object" many pieces.
+        words = list(dict.fromkeys(w for w in (concept, _plain_name(name)) if w))
+        try:
+            found = seg.segment(frame["image"], words + ["object", CANDIDATE_CONCEPT, "hand"])
+        except Exception:
+            found = []
+        for w in words:
+            hits = [d for d in found if d.concept == w and (d.box[2] - d.box[0]) * (d.box[3] - d.box[1]) <= 0.8]
+            if hits:
+                d = min(hits, key=lambda d: _off_centre({"box": d.box}))
+                return d.box, w, "asked"
+        hands = [d.box for d in found if d.concept == "hand"]
+        hands += [d["box"] for d in frame["detections"] if d["concept"] in ("hand", "person")]
+        solid = [d.box for d in found if d.concept == "object"]
+        box = pick_held(solid, hands)
+        if box is None:
+            boxes = [d.box for d in found if d.concept == CANDIDATE_CONCEPT] + [d["box"] for d in objs]
+            box = pick_held(boxes, hands)
+        if box is not None:
+            known = next((d["concept"] for d in objs if tuple(d["box"]) == tuple(box)), None)
+            return box, concept or known or "object", "detected"
         return (0.25, 0.25, 0.75, 0.75), concept or "object", "centre"
 
     def teach_object(self, a: TeachObject):
@@ -381,7 +396,7 @@ class ToolBox:
             raise ToolError(f"To teach the {a.name}, hold it up and say its name.")
         crops, hows, boxes, concept = [], [], [], a.concept
         for f in frames:
-            box, c, how = self._teach_target(f, concept)
+            box, c, how = self._teach_target(f, concept, a.name)
             if how == "centre":             # the middle of the view may be the background
                 continue
             concept = concept or c
@@ -398,9 +413,10 @@ class ToolBox:
             raise ToolError(f"That looks like your {e.label}. If it's really the {a.name}, "
                             f"say: that's not the {e.label}, it's the {a.name}.")
         self.mem.registry.saw_taught(v["id"], p.phone_zone.current(time.time()), boxes[0], keyframe)
-        summary = f"Got it - that's your {a.name} ({len(crops)} view{'s' * (len(crops) > 1)})."
-        if v.get("examples", 0) < 3:
-            summary += " Turn it a little and say it again so I can recognise it from other angles."
+        summary = f"Got it, that's your {a.name}."
+        # Show what was stored, so a wrong pick is seen at once.
+        self.ctx.hub.push({"type": "highlight", "entity_id": v["id"], "label": a.name, "box": list(boxes[0]),
+                           "found": True})
         return {"entity": v, "views": hows, "summary": summary}
 
     def correct_object(self, a: CorrectObject):
@@ -553,6 +569,25 @@ class ToolBox:
         self.ctx.hub.push({"type": "alert", "severity": a.severity, "message": a.message})
         self.mem.db.log_event("alert", "inferred", {"message": a.message, "severity": a.severity})
         return {"summary": "Sent."}
+
+
+def _plain_name(name):
+    """A taught name as a word SAM can look for: "my baby's biter" -> "baby's biter"."""
+    return " ".join(w for w in (name or "").lower().split() if w not in ("my", "the", "a", "an", "our"))
+
+
+def pick_held(boxes, hands):
+    """The box most likely to be the object being shown: by the hand, else mid-view and big."""
+    def score(b):
+        area = (b[2] - b[0]) * (b[3] - b[1])
+        s = min(area / 0.08, 1.0) - _off_centre({"box": b})
+        for h in hands:
+            near = (b[0] < h[2] + 0.08 and b[2] > h[0] - 0.08 and b[1] < h[3] + 0.08 and b[3] > h[1] - 0.08)
+            same = covered(b, [h]) > 0.7           # the hand itself, or a fingernail
+            s += -3.0 if same else 1.0 if near else 0.0
+        return s
+    usable = [b for b in boxes if 0.004 <= (b[2] - b[0]) * (b[3] - b[1]) <= 0.5]
+    return max(usable, key=score) if usable else None
 
 
 def _off_centre(d):

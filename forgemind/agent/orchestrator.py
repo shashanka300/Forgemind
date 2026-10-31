@@ -106,8 +106,8 @@ def is_cut_off(text):
 
 # Hands-free hears everything, including the user thinking aloud: it only acts on "Forge, ..."
 # and on what follows a reply for a few seconds. Hold-to-talk and typing don't need it.
-_WAKE = re.compile(r"^\W*(?:(?:hey|hi|ok|okay|so|alright|um|uh)\W+)*"
-                   r"(?:forge\s*mind|forgemind|forged|forges|forge)\b\W*", re.I)
+_WAKE = re.compile(r"\b(?:(?:hey|hi|ok|okay)\W+)?(?:forge\s*mind|forgemind|forged|forges|forge)\b\W*", re.I)
+_FILLERS_ONLY = re.compile(r"^\W*(?:(?:so|and|alright|um|uh|i mean|right|sorry|okay|ok|hey)\W*)*$", re.I)
 FOLLOW_UP_S = 8.0
 SPOKEN_CHARS_PER_S = 15.0   # how long a reply takes to say; the follow-up time starts after it
 # "Got it, phone only from here": the agent can't change mics, speakers or devices, and saying
@@ -119,10 +119,25 @@ CANT_CHANGE_SETUP = ("I can't change that myself. The Hands-free and Desk mic bu
                      "choose which mic listens.")
 
 
+def after_wake(text):
+    """The request in a sentence containing the wake word ("" = just the word), else None.
+
+    It can come anywhere: "and hey Forge what do you see now?" (phone test, Oct 31).
+    """
+    m = _WAKE.search(text)
+    if not m:
+        return None
+    rest = text[m.end():].strip()
+    if rest:
+        return rest
+    before = text[:m.start()].strip()
+    return "" if _FILLERS_ONLY.match(before) else before
+
+
 def promises_setup_change(reply):
     t = reply.strip()
     return (not t.endswith("?") and bool(_DEVICE_WORD.search(t)) and bool(_SETTING_PROMISE.search(t))
-            and bool(re.search(r"\b(?:got it|okay|ok|sure|i'll|i will|staying)\b", t, re.I)))
+            and bool(re.search(r"\b(?:got it|okay|ok|sure|understood|i'll|i will|staying)\b", t, re.I)))
 
 
 HISTORY_TURNS = 8
@@ -150,6 +165,7 @@ class Agent:
         self._wait_lock = threading.Lock()
         self._last_turn = {}                    # source -> (ts, words)
         self._follow_until = 0.0                # hands-free needs no wake word until then
+        self._last_usage = {}
         self._llm_ms = 0
         self.system1 = System1(ctx.settings, ctx.memory) if ctx.settings.system1 else None
         self.last_verify_thread = None
@@ -285,9 +301,9 @@ class Agent:
 
         `peek`: a partial transcript; nothing is logged.
         """
-        m = _WAKE.match(text)
-        if m:
-            return text[m.end():].strip() or text
+        said = after_wake(text)
+        if said is not None:
+            return said or text
         if time.time() < self._follow_until:
             return text
         if not peek:
@@ -310,8 +326,7 @@ class Agent:
         """One user turn; each turn's timing and path go in the log (event `turn`)."""
         t0 = time.perf_counter()
         now = time.time()
-        m = _WAKE.match(text)
-        if m and not text[m.end():].strip():    # just "Forge"
+        if after_wake(text) == "":              # just "Forge"
             self._remember("assistant", "Yes?")
             return {"reply": "Yes?", "trace": [], "fast": True, "ms": 0}
         said = [w for ts, w in self._spoken if now - ts <= ECHO_WINDOW_S]
@@ -353,6 +368,8 @@ class Agent:
                 self.tools.utterance, self.tools.turn_frames = None, None
             self.ctx.memory.db.log_event("turn", "inferred", {
                 "ms": r["ms"], "queue_ms": queue_ms, "model_ms": self._llm_ms, "source": source,
+                "prompt_tokens": self._last_usage.get("prompt_tokens"),
+                "completion_tokens": self._last_usage.get("completion_tokens"),
                 "fast": bool(r.get("fast")), "tools": [t["tool"] for t in r["trace"]]})
             return r
 
@@ -375,6 +392,7 @@ class Agent:
                 t_model = time.perf_counter()
                 res = llm.chat(messages, tools=self.schemas, model=llm.model_for("agent"))
                 self._llm_ms += round((time.perf_counter() - t_model) * 1000)
+                self._last_usage = res.usage or {}
                 if not res.tool_calls:
                     reply = (res.content or "").strip()
                     if trace and all(t["summary"] and not t["error"] and t["tool"] not in NEEDS_PHRASING

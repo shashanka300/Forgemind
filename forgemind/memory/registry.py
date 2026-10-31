@@ -92,6 +92,25 @@ class Registry:
                 best, best_sim = e["id"], sim
         return best, best_sim
 
+    def match_taught(self, vec, min_sim, exclude=()):
+        """Best taught identity for a crop, or (None, best_sim)."""
+        ents, refs = self._candidates()
+        best, best_sim = None, 0.0
+        for e in ents:
+            if e["taught"] and e["id"] not in exclude and e["id"] in refs:
+                sim = max(float(vec @ r) for r in refs[e["id"]])
+                if sim > best_sim:
+                    best, best_sim = e["id"], sim
+        return (best, best_sim) if best_sim >= min_sim else (None, best_sim)
+
+    def any_taught(self):
+        return bool(self.db.one("SELECT 1 AS x FROM entities WHERE deleted=0 AND taught=1 LIMIT 1"))
+
+    def taught_concepts(self):
+        """The words SAM can look for taught objects by ("object" says nothing)."""
+        rows = self.db.all("SELECT DISTINCT concept FROM entities WHERE deleted=0 AND taught=1")
+        return [r["concept"] for r in rows if r["concept"] and r["concept"] != "object"]
+
     # -- writes ---------------------------------------------------------------
 
     def observe(self, *, camera, zone, region, concept, box, score, crop,
