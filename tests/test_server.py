@@ -88,3 +88,35 @@ def test_bench_preview_page_and_frame(rt):
         assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
         assert c.get("/api/cameras/kitchen/latest.jpg").status_code == 404
         assert "latest.jpg" in c.get("/bench").text
+
+
+def test_login_form_unlocks_only_with_the_token(rt):
+    from fastapi.testclient import TestClient
+
+    from forgemind.server.app import create_app
+    with TestClient(create_app(rt), base_url="https://testserver") as c:
+        r = c.get("/")
+        assert r.status_code == 401 and 'action="/login"' in r.text
+        assert c.get("/api/state").status_code == 401
+        r = c.post("/login", data={"token": "wrong"})
+        assert r.status_code == 401 and "isn't right" in r.text
+        assert c.get("/api/state").status_code == 401
+        r = c.post("/login", data={"token": "secret-token"}, follow_redirects=False)
+        assert r.status_code == 303 and "HttpOnly" in r.headers["set-cookie"]
+        assert c.get("/api/state").status_code == 200
+
+
+def test_stale_share_on_our_name_is_released(monkeypatch):
+    import types
+
+    from forgemind.server import tunnel
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        table = ("x e3gk4740ng69 | shashanka-gallery.shares.zrok.io\n"
+                 "x mefb9uaf9zyf | my-name.shares.zrok.io\n")
+        return types.SimpleNamespace(stdout=table)
+    monkeypatch.setattr(tunnel.subprocess, "run", run)
+    tunnel._release_name("zrok2", "my-name")
+    assert calls[1:] == [["zrok2", "delete", "share", "mefb9uaf9zyf"]]    # only ours

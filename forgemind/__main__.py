@@ -49,7 +49,7 @@ def cmd_serve(args):
     tunnel = None
     if args.zrok:
         from forgemind.server.tunnel import start_zrok
-        tunnel = start_zrok(s.port, s.token)
+        tunnel = start_zrok(s.port, name=s.zrok_name)
     try:
         uvicorn.run(create_app(rt), host=s.host, port=s.port, log_level="warning")
     finally:

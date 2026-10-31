@@ -82,6 +82,7 @@ class Settings:
     system1: str = ""
     system1_min_conf: float = 0.96
     system1_verify: bool = True
+    zrok_name: str = ""       # reserved zrok name: a fixed phone address
     # spoken replies: "kokoro" (local neural voice, server/tts.py) or "" (phone's own voice)
     tts: str = ""
     tts_voice: str = "af_heart"
@@ -136,6 +137,7 @@ class Settings:
             system1=_env("FM_SYSTEM1"),
             system1_min_conf=float(_env("FM_SYSTEM1_MIN_CONF", "0.96")),
             system1_verify=_bool("FM_SYSTEM1_VERIFY", True),
+            zrok_name=_env("FM_ZROK_NAME"),
             tts=_env("FM_TTS"),
             tts_voice=_env("FM_TTS_VOICE", "af_heart"),
             tts_speed=float(_env("FM_TTS_SPEED", "1.0")),

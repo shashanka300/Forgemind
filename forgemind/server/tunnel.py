@@ -8,17 +8,37 @@ import re
 import shutil
 import subprocess
 import threading
-from urllib.parse import quote
 
 
-def start_zrok(port, token, on_url=None):
+def _release_name(exe, name):
+    """Delete a dead share still holding our reserved name.
+
+    A server that was killed never tells zrok it stopped, and the next share is refused
+    ("name ... is in use by share ...").
+    """
+    out = subprocess.run([exe, "list", "shares"], capture_output=True, encoding="utf-8",
+                         errors="replace", timeout=30).stdout or ""
+    for line in out.splitlines():
+        m = re.search(r"\b([a-z0-9]{12})\b", line)
+        if m and f"{name}." in line:
+            subprocess.run([exe, "delete", "share", m.group(1)], capture_output=True, timeout=30)
+
+
+def start_zrok(port, on_url=None, name=None):
+    """`name`: a reserved zrok name (FM_ZROK_NAME), so the address survives restarts.
+
+    The link never carries the access token: the page asks for it (app.py /login).
+    """
     exe = shutil.which("zrok2") or shutil.which("zrok")
     if not exe:
         print("zrok not found. Install it from https://zrok.io, run "
               "`zrok enable <your account token>`, then try again.")
         return None
+    if name:
+        _release_name(exe, name)
     proc = subprocess.Popen(
-        [exe, "share", "public", "--headless", f"http://127.0.0.1:{port}"],
+        [exe, "share", "public", "--headless", *(["-n", f"public:{name}"] if name else []),
+         f"http://127.0.0.1:{port}"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
     def read():
@@ -30,10 +50,10 @@ def start_zrok(port, token, on_url=None):
                  or re.search(r"\b([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+){2,})\b", rest))
             if endpoints and m and not announced:
                 url = f"https://{m.group(1)}"
-                link = f"{url}/?t={quote(token)}" if token else url
-                print("\n  phone link (keep it private - it unlocks ForgeMind):")
+                link = f"{url}/"
+                print("\n  phone link (asks for the access token):")
                 print(f"  {link}")
-                print(f"  bench phone:  {link}{'&' if token else '?'}role=static\n")
+                print(f"  bench phone:  {link}?role=static\n")
                 if on_url:
                     on_url(link)
                 announced = True

@@ -31,8 +31,10 @@ MAX_FRAME = 8 * 1024 * 1024
 SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 LOCKED = """<!doctype html><meta name=viewport content="width=device-width">
 <body style="font:16px system-ui;background:#0f1012;color:#e9e6df;padding:40px 24px">
-<h2>ForgeMind is locked</h2><p>Open the full link printed on the computer,
-including the <code>?t=</code> access token.</p></body>"""
+<h2>ForgeMind is locked</h2>__ERROR__<form method="post" action="/login">
+<p><input name="token" type="password" placeholder="Access token" autofocus autocomplete="current-password"
+ style="font:16px system-ui;padding:10px;width:100%;max-width:320px;box-sizing:border-box"></p>
+<button style="font:16px system-ui;padding:10px 20px">Unlock</button></form></body>"""
 
 
 class ChatIn(BaseModel):
@@ -97,7 +99,7 @@ def create_app(rt):
 
     @app.middleware("http")
     async def auth(request: Request, call_next):
-        if request.url.path == "/healthz" or not token:
+        if request.url.path in ("/healthz", "/login") or not token:
             return await call_next(request)
         q = request.query_params
         if hmac.compare_digest(request.cookies.get(COOKIE, ""), token):
@@ -114,7 +116,21 @@ def create_app(rt):
             return resp
         if request.url.path.startswith("/api/"):
             return JSONResponse({"error": "locked"}, 401)
-        return HTMLResponse(LOCKED, 401)
+        return HTMLResponse(LOCKED.replace("__ERROR__", ""), 401)
+
+    @app.post("/login")
+    async def login(request: Request):
+        """The locked page's form: the right token gets the same 30-day cookie as ?t=."""
+        from urllib.parse import parse_qs
+        body = (await request.body()).decode("utf-8", "replace")
+        given = (parse_qs(body).get("token") or [""])[0].strip()
+        if token and hmac.compare_digest(given.encode(), token.encode()):
+            resp = RedirectResponse("/", 303)
+            resp.set_cookie(COOKIE, token, max_age=2592000, httponly=True, samesite="lax",
+                            secure=request.headers.get("x-forwarded-proto") == "https")
+            return resp
+        await asyncio.sleep(1)             # no fast guessing
+        return HTMLResponse(LOCKED.replace("__ERROR__", "<p>That token isn't right.</p>"), 401)
 
     # -- pages and files ------------------------------------------------------
 
