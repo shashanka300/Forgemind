@@ -1,0 +1,73 @@
+So listen, to this particular proposition.
+This is the audio board which I'm going to use for
+Hey, you
+It's an Arduino board.
+Hey, this is my measurement tape.
+these are my LCD panels.
+Just have a look in and around it.
+These are my clippers.
+This is a switch which I'm supposed to leverage
+nice, so this is my copper cable which I'm going to use for my downstream experiments.
+So these are my wireless headphones.
+So yeah this is the table where I keep my baby stuff
+alright this is my cooler
+so yeah I'll just show it to you again.
+this is the cooler.
+yeah that's fair enough.
+alright
+The pink five finger like thing is my baby's biter.
+no no I meant this particular object
+alright fair enough.
+so this is the water heater.
+this is kind of the medicine cabinet
+and a bit of toys here and there.
+alright this is pretty much what I wanted to record for the entire duration.
+so I do have my own set of books this is my
+That's the watch it's not a multimeter.
+alright yeah here is the headphone.
+you detected it right.
+so you're this is the mouse of the computer.
+so the white object here is my timer
+it's a timer.
+alright uh everything looks good this is my primary monitor.
+this is the secondary monitor.
+so this is pretty much the fixed camera which I'm using for this purpose.
+so yeah this is this is it
+have a look at the object
+alright can you answer questions about where you saw my baby's hand
+no I was asking about my baby's biter where was it.
+last
+alright so I think you are indicating in the image that my baby's biter but where is it
+alright let's see where it is lying have you just let me know when you see it in your frames.
+Alright keep looking for it.
+I think you're looking at it
+yeah it is in the view and I'm holding it in my hand.
+see why don't you detect it going forward.
+record it.
+Oh
+okay fine then.
+yeah, finally found it.
+thanks for locating it.
+alright let's pause the session for now.
+uh I think you are detecting the wrong item as the baby's biter.
+This is the LCD panel.
+this is also the LCD panels other view
+right
+so the thing is I see you're making a few
+yep I'm pointing it at it.
+can you see it it's a pink colored object with five
+alright that's fair enough
+the I think I haven't shown you my keyboard yet.
+see that's not a baby's biter you're locating at my mouse and telling me that's a baby's biter that's my mouse
+yes and this is my keyboard.
+have a look at it.
+see I think you're misclassifying my mouse as the baby's biter so can you update your memory.
+appropriately.
+Yeah, I see you are getting confused between the baby's bite or and the mouse. So, the one object which you're looking at right now is not the baby's bite or it's the mouse.
+Alright, I see there's a bit of confusion between the objects. And it's not able to detect every object at this point in time. I'm trying to record new set of objects but it's getting confused and it's not labeling a new set of objects.
+So,
+The logs for further improvement.
+I'm getting back to work at this point. Let's continue with what I've been doing.
+Don't worry about it. As far as I see, everything is going good.
+um
+it's alright I'll get back to you

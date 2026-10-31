@@ -43,6 +43,14 @@ def fmt_ago(seconds):
     return f"{s // 86400} day{'s' if s // 86400 != 1 else ''} ago"
 
 
+class TeachConflict(Exception):
+    """The views being taught look like a different taught object."""
+
+    def __init__(self, label):
+        super().__init__(label)
+        self.label = label
+
+
 class Registry:
     def __init__(self, db, index, embedder, settings):
         self.db, self.index, self.emb, self.s = db, index, embedder, settings
@@ -151,12 +159,41 @@ class Registry:
         self.db.log_event("disappeared", "observed", {"label": self.label(eid)},
                           camera=camera, zone=zone, entity_id=eid, ts=ts)
 
-    def teach(self, name, crops, concept="object", keyframe=None):
-        """Name an object from 1+ example crops (gallery's TEACH, for objects)."""
+    def _keep_own_views(self, vecs, own_id):
+        """Drop views that look like another taught object more than like this one.
+
+        Phone test, Oct 31: re-teaching with a mouse in view stored mouse crops under
+        "baby's biter", and from then on the mouse matched as the biter.
+        """
+        ents, refs = self._candidates()
+        others = [e for e in ents if e["taught"] and e["id"] != own_id and e["id"] in refs]
+        keep, rival = [], None
+        for v in vecs:
+            own = max((float(v @ r) for r in refs.get(own_id, [])), default=0.0)
+            best, best_sim = None, 0.0
+            for e in others:
+                sim = max(float(v @ r) for r in refs[e["id"]])
+                if sim > best_sim:
+                    best, best_sim = e, sim
+            if best is not None and best_sim >= self.s.teach_min_sim and best_sim > own:
+                rival = best
+            else:
+                keep.append(v)
+        if not keep:
+            raise TeachConflict(rival["name"] or rival["concept"])
+        return keep
+
+    def teach(self, name, crops, concept="object", keyframe=None, force=False):
+        """Name an object from 1+ example crops (gallery's TEACH, for objects).
+
+        `force` skips the look-alike check (the user just corrected a wrong label).
+        """
         name = " ".join(name.split())[:60]
         vecs = [_norm(v) for v in self.emb.embed_images(crops)]
         existing = self.db.one(
             "SELECT * FROM entities WHERE deleted=0 AND lower(name)=lower(?)", (name,))
+        if not force:
+            vecs = self._keep_own_views(vecs, existing["id"] if existing else None)
         if existing:
             eid = existing["id"]
         else:
@@ -180,6 +217,32 @@ class Registry:
         v["examples"] = self.db.one("SELECT COUNT(*) AS n FROM entity_refs WHERE entity_id=?",
                                     (eid,))["n"]
         return v
+
+    def saw_taught(self, eid, zone, box, keyframe=None):
+        """The phone was looking at it while it was taught: that's a sighting."""
+        self.db.execute(
+            "UPDATE entities SET last_seen=?, last_camera='mobile',"
+            " last_zone=COALESCE(?, last_zone), last_region=NULL, last_box=?, last_score=0.9,"
+            " sightings=sightings+1, last_keyframe=COALESCE(?, last_keyframe) WHERE id=?",
+            (time.time(), zone, ",".join(f"{b:.4f}" for b in box), keyframe, eid))
+
+    def unlearn(self, eid, crop):
+        """Forget the stored views of `eid` that look like `crop` (a wrong label).
+
+        An identity left with no views was entirely wrong, so it is removed.
+        """
+        v = _norm(self.emb.embed_images([crop])[0])
+        rows = self.db.all("SELECT id, vec FROM entity_refs WHERE entity_id=?", (eid,))
+        gone = [r["id"] for r in rows if float(v @ blob_to_vec(r["vec"])) >= self.s.teach_min_sim]
+        for rid in gone:
+            self.db.execute("DELETE FROM entity_refs WHERE id=?", (rid,))
+        left = [blob_to_vec(r["vec"]) for r in rows if r["id"] not in gone]
+        if left:
+            self.db.execute("UPDATE entities SET proto=? WHERE id=?",
+                            (vec_to_blob(_norm(np.mean(left, axis=0))), eid))
+        elif rows:
+            self.delete(eid)
+        return len(gone)
 
     def correct(self, eid, name=None, zone=None):
         if name:
@@ -261,7 +324,7 @@ class Registry:
         q = q.removeprefix("the ").removeprefix("my ")
         ents = self.db.all("SELECT * FROM entities WHERE deleted=0")
         scored = []
-        qwords = set(q.split())
+        head = q.split()[-1] if q else ""
         for e in ents:
             label = (e["name"] or "").lower()
             concept = e["concept"].lower()
@@ -270,8 +333,8 @@ class Registry:
                 s = 3.0
             elif concept == q or concept in q or q in concept:
                 s = 2.0
-            elif qwords & set((label + " " + concept).split()):
-                s = 1.0
+            elif head in (label + " " + concept).split():
+                s = 1.0                 # the noun, not any word: "baby's hand" isn't "baby's biter"
             if s:
                 scored.append((s + (e["last_seen"] or 0) * 1e-12, e))
         if scored:

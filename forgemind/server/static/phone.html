@@ -409,7 +409,8 @@ function beginTurn(text) {
   return {pending, ack};
 }
 function finishTurn(t, r) {
-  t.pending.remove(); addMsg("a", r.reply, r.trace); speak(r.reply, {queue: !!t.ack});
+  t.pending.remove();
+  if (r.reply) { addMsg("a", r.reply, r.trace); speak(r.reply, {queue: !!t.ack}); }   // fragments get none
   refresh();
 }
 async function send(text) {

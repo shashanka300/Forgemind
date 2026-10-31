@@ -4,7 +4,7 @@ A fine-tuned Laya decision model (eval/system1_train.py) picks the tool in ~20 m
 arguments come from closed choices (objects in memory, session names) or plain parsing
 (a measurement's number and unit). Anything compound, uncertain, or outside FAST_TOOLS
 returns None and goes to the Spark agent as before. Measured on hand-written turns
-(eval/system1_eval.py): at confidence 0.96, 50/80 tool turns, 1 wrong.
+(eval/system1_eval.py) and on real speech (eval/real_speech.py).
 
 Writes made on the fast path are re-checked by Spark in the background (orchestrator), and
 undone with a spoken correction if Spark disagrees; `undo` here reverses each one.
@@ -17,8 +17,22 @@ from dataclasses import dataclass, field
 
 # Tools whose arguments can be filled without generating text. The rest
 # (plan_steps, log_step, set_config, start_session, teach_object, ...) need Spark.
-FAST_TOOLS = {"where_is", "highlight", "resume_session", "read_closeup", "end_session",
-              "watch_bench", "log_measurement"}
+# resume_session is out: on real speech (phone test, Oct 31) remarks like "I'm getting back
+# to work" and "no I was asking about ..." scored 0.98 as resume.
+FAST_TOOLS = {"where_is", "highlight", "read_closeup", "end_session", "watch_bench",
+              "log_measurement"}
+# Laya is confident even on sentences that aren't commands, so a fast action also needs the
+# words of that request. Anything else goes to Spark.
+INTENT = {
+    "where_is": re.compile(r"\b(where|find|locate|seen|lost|missing)\b", re.I),
+    "highlight": re.compile(r"\b(highlight|mark|point out|show me)\b", re.I),
+    "read_closeup": re.compile(r"\b(read|reading|say|says|display|screen|showing)\b", re.I),
+    "end_session": re.compile(r"\b(end|close|stop|finish|wrap up|done with)\b", re.I),
+    "watch_bench": re.compile(r"\b(watch|monitor|keep an eye|warn|alert|let me know|tell me if|shout if)\b", re.I),
+    "log_measurement": re.compile(r"\d"),
+}
+# Corrections and pushback need thinking: "no I was asking about ...", "that's not ..."
+PUSHBACK = re.compile(r"^\W*(?:(?:uh|um|see|so|well)\W+)*(?:no|nope|not|wrong)\b|\b(?:that's|it's|that is|it is) not\b", re.I)
 # Fast actions that change memory: Spark re-checks them after the reply.
 WRITES = {"log_measurement", "end_session", "watch_bench"}
 MULTI_MAX = 0.5
@@ -210,6 +224,9 @@ class System1:
         if tool not in FAST_TOOLS or conf < self.min_conf or multi >= MULTI_MAX:
             self.last_reason = "not fast" if tool not in FAST_TOOLS else "unsure"
             return None
+        if PUSHBACK.search(text) or not INTENT[tool].search(text):
+            self.last_reason = "not a plain request"
+            return None
         args = self._args(tool, text)
         if args is None:
             self.last_reason = "arguments"
@@ -221,17 +238,6 @@ class System1:
         if tool in ("where_is", "highlight"):
             obj = self._object(text)
             return {"query": obj} if obj else None
-        if tool == "resume_session":
-            # Session names are matched by words in code: Laya can't tell "no name given"
-            # (most recent) from a one-session list (0.42 on "where did we leave off?").
-            from forgemind.memory.experiments import _words
-            said = _words(text)
-            best, score = None, 0.0
-            for s in self.mem.experiments.list(20):
-                w = _words(s["name"])
-                if w and len(w & said) / len(w) > score:
-                    best, score = s["name"], len(w & said) / len(w)
-            return {"name": best} if score >= 0.6 else {}
         if tool == "read_closeup":
             return {"target": "multimeter display"}
         if tool == "end_session":

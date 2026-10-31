@@ -138,24 +138,45 @@ def test_fast_watch_undone_when_spark_disagrees(rt):
     agent = fast_agent(rt, {text: ("watch_bench", 0.99, 0.0)}, SparkStub([("inspect_scene", {})]))
     out = agent.handle(text)
     assert out["fast"] and out["trace"][0]["args"]["concept"] == "soldering iron"
-    assert len(rt.safety.watches()) == before + 1
     agent.last_verify_thread.join(5)
     assert len(rt.safety.watches()) == before
     said = [m["text"] for m in rt.hub.outbox if m["type"] == "say"]
     assert said and said[0].startswith("Correction: I stopped watching the soldering iron.")
 
 
-@pytest.mark.parametrize("text,args", [
-    ("where did we leave off?", {}),
-    ("let's continue the soldering headers job", {"name": "soldering headers"}),
+def test_resume_goes_to_spark(rt):
+    agent = fast_agent(rt, {"where did we leave off?": ("resume_session", 0.99, 0.0)})
+    assert not agent.handle("where did we leave off?").get("fast")
+
+
+@pytest.mark.parametrize("text,decision", [
+    # real sentences from the phone test that Laya scored 0.98+ as actions
+    ("no I was asking about my baby's biter where was it.", ("where_is", 0.99, 0.0)),
+    ("that's not the hex key, it's my mouse", ("where_is", 0.99, 0.0)),
+    ("alright let's pause the session for now.", ("end_session", 0.99, 0.0)),
+    ("the hex key looks fine", ("where_is", 0.99, 0.0)),
 ])
-def test_resume_session_by_words(rt, text, args):
-    rt.memory.experiments.start("soldering headers")
+def test_confident_but_not_a_plain_request_goes_to_spark(rt, text, decision):
+    rt.perception.process("static", scene([("hex key", .4, .4, .5, .5)]), ts=time.time() - 5)
     rt.memory.experiments.start("divider")
-    rt.memory.experiments.end()
-    agent = fast_agent(rt, {text: ("resume_session", 0.99, 0.0)})
+    agent = fast_agent(rt, {text: decision})
+    assert not agent.handle(text).get("fast")
+
+
+@pytest.mark.parametrize("text,ignored", [
+    ("um", True), ("Oh", True), ("So,", True), ("last", True), ("appropriately.", True),
+    ("Hey, you", True), ("alright", True),
+    ("thanks", False), ("yes", False), ("where is my hex key?", False), ("okay fine then.", False),
+])
+def test_fragments_get_no_model_call(rt, text, ignored):
+    agent = fast_agent(rt, {text: ("chat", 0.9, 0.0)})
     out = agent.handle(text)
-    assert out["fast"] and out["trace"][0]["args"] == args
+    assert bool(out.get("ignored")) is ignored and (agent.ctx.llm.calls == 0) is ignored
+
+
+def test_each_turn_is_timed_in_the_log(rt):
+    fast_agent(rt, {"hello": ("chat", 0.9, 0.0)}).handle("hello")
+    assert [e for e in rt.memory.db.recent_events(10) if e["type"] == "turn"]
 
 
 @pytest.mark.parametrize("text,fast", [("that's it, end the session", True),

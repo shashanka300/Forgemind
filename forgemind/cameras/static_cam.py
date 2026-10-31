@@ -130,6 +130,7 @@ def run(server, token, device=0, fps=1.0, show=False, loop=False, send_px=FRAME_
             except urllib.error.URLError as e:
                 print(f"server unreachable: {e.reason}")
             if show:
+                cv2.namedWindow("ForgeMind static camera", cv2.WINDOW_NORMAL)  # resizable: frames are 2560 px
                 cv2.imshow("ForgeMind static camera", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break

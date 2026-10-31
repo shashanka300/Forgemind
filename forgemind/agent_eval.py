@@ -40,6 +40,11 @@ SCRIPT = [
     ("what was the output voltage again?", [set(), {"resume_session"}]),
     ("what's the capital of France?", [set()]),
     ("thanks, that's all for now", [set(), {"end_session"}]),
+    # from the phone test: remarks must not act, corrections must correct
+    ("thanks for locating it", [set()]),
+    ("okay fine then.", [set()]),
+    ("the logs for further improvement.", [set()]),
+    ("that's not the multimeter, it's my stopwatch", [{"correct_object"}, {"correct_object", "go_look_at"}]),
 ]
 
 # USD per 1M tokens (input, output), from dev.meta.ai pricing (Oct 26, 2026)

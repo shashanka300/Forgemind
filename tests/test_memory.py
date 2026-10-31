@@ -90,10 +90,53 @@ def test_teach_asks_segmenter_when_frame_missed_it(rt):
     assert "Turn it" in out["summary"]
 
 
-def test_teach_centre_fallback_says_so(rt):
+def test_teach_refuses_when_it_cannot_pick_out_the_object(rt):
     rt.perception.process("mobile", scene([], tag=2), ts=time.time())
     out = rt.agent.tools.run("teach_object", {"name": "mystery part"})
-    assert out["views"] == ["centre"] and "middle of the view" in out["summary"]
+    assert "can't pick out" in out["error"] and rt.memory.registry.find("mystery part") == []
+
+
+def test_small_talk_does_not_teach(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    rt.agent.tools.utterance = "thanks for locating it"
+    assert "say its name" in rt.agent.tools.run("teach_object", {"name": "baby's biter"})["error"]
+    rt.agent.tools.utterance = "these are my hex keys"
+    assert "error" not in rt.agent.tools.run("teach_object", {"name": "hex key"})
+
+
+def test_just_taught_object_can_be_found(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=1), ts=time.time())
+    v = rt.agent.tools.run("teach_object", {"name": "small key"})["entity"]
+    found = rt.memory.registry.find("small key")[0]
+    assert found["last_seen"] and found["camera"] == "mobile" and found["id"] == v["id"]
+
+
+def test_teaching_a_lookalike_of_another_taught_object_is_refused(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    rt.agent.tools.run("teach_object", {"name": "mouse"})
+    out = rt.agent.tools.run("teach_object", {"name": "biter"})
+    assert "looks like your mouse" in out["error"]
+    assert rt.memory.registry.find("biter") == []
+
+
+def test_correct_object_moves_the_label(rt):
+    img = scene([("hex key", .4, .4, .6, .6)], tag=2)
+    rt.perception.process("mobile", img, ts=time.time())
+    rt.agent.tools.run("teach_object", {"name": "biter"})
+    rt.perception.process("mobile", img, ts=time.time(), force=True)
+    assert rt.perception.latest["mobile"]["detections"][0]["label"] == "biter"
+    out = rt.agent.tools.run("correct_object", {"wrong_name": "biter", "right_name": "mouse"})
+    assert out["summary"].startswith("Fixed") and out["removed_views"] >= 1
+    assert rt.memory.registry.find("biter") == []            # nothing else was ever taught as it
+    rt.perception.process("mobile", img, ts=time.time(), force=True)
+    assert rt.perception.latest["mobile"]["detections"][0]["label"] == "mouse"
+
+
+def test_weak_word_overlap_is_not_a_match(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    rt.agent.tools.run("teach_object", {"name": "baby's biter"})
+    assert not [v for v in rt.memory.registry.find("baby's hand") if v["label"] == "baby's biter"]
+    assert rt.memory.registry.find("biter")[0]["label"] == "baby's biter"
 
 
 def test_teach_ignores_old_frames(rt):

@@ -48,6 +48,19 @@ def is_compound(text):
     return bool(m) and len(re.findall(r"[a-z]{2,}", text[:m.start()].lower())) >= 2
 
 
+# Hands-free hears everything: "um", "Oh", "last" are not requests. No model call, no reply.
+_FILLER = {"um", "umm", "uh", "uhh", "ah", "oh", "hmm", "mm", "so", "and", "but", "alright",
+           "hey", "like", "well", "the", "you", "see"}
+_ONE_WORD_OK = {"yes", "yeah", "no", "nope", "thanks", "hello", "hi", "stop", "help", "bye",
+                "okay", "ok", "sure", "next", "done", "cancel", "undo"}
+
+
+def is_fragment(text):
+    words = re.findall(r"[a-z0-9.']+", text.lower().replace(".", " "))
+    rest = [w for w in words if w not in _FILLER]
+    return not rest or (len(rest) == 1 and len(words) <= 2 and rest[0] not in _ONE_WORD_OK)
+
+
 HISTORY_TURNS = 8
 
 
@@ -195,7 +208,21 @@ class Agent:
             self._remember("assistant", msg)
 
     def handle(self, text):
+        """One user turn; each turn's timing and path go in the log (event `turn`)."""
         t0 = time.perf_counter()
+        if is_fragment(text):
+            self.ctx.memory.db.log_event("ignored", "inferred", {"text": text})
+            return {"reply": "", "trace": [], "ignored": True, "ms": 0}
+        self.tools.utterance = text
+        try:
+            r = self._handle(text, t0)
+        finally:
+            self.tools.utterance = None
+        self.ctx.memory.db.log_event("turn", "inferred", {
+            "ms": r["ms"], "fast": bool(r.get("fast")), "tools": [t["tool"] for t in r["trace"]]})
+        return r
+
+    def _handle(self, text, t0):
         with self._lock:
             llm = self.ctx.llm
             # The system prompt stays identical every turn so the provider can cache

@@ -332,7 +332,7 @@ def create_app(rt):
         finally:
             try:
                 await socket.close()
-            except RuntimeError:
-                pass
+            except (RuntimeError, WebSocketDisconnect):
+                pass                       # the phone already went away
 
     return app

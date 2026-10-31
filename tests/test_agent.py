@@ -184,7 +184,7 @@ def test_openai_compat_provider_against_fake_meta_endpoint(rt):
 
 def test_tool_schemas_are_valid_and_validation_rejects_bad_args(rt):
     names = [s["function"]["name"] for s in schemas()]
-    assert len(names) == len(set(names)) == 16 and "alert" not in names   # alert hidden from the agent
+    assert len(names) == len(set(names)) == 17 and "alert" not in names   # alert hidden from the agent
     for s in schemas():
         assert s["function"]["parameters"]["type"] == "object"
     out = rt.agent.tools.run("log_measurement", {"quantity": "v"})

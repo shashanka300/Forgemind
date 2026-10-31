@@ -10,6 +10,7 @@ Today a person carrying the phone fulfils them; a robot base or arm can
 implement the same requests later without changing the agent.
 """
 import json
+import re
 import threading
 import time
 from typing import Literal
@@ -17,6 +18,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from forgemind import reports
+from forgemind.memory.registry import TeachConflict
 from forgemind.providers.openai_compat import image_part
 
 READ_PROMPT = """You read instrument displays from a photo. Target: {target}.
@@ -69,6 +71,20 @@ class WatchBench(BaseModel):
 class TeachObject(BaseModel):
     name: str = Field(..., description="Personal name for the object in front of the phone")
     concept: str | None = None
+
+
+def name_said(name, text):
+    """Did the user say at least half of the words of this name in `text`?"""
+    def words(t):
+        return {w.rstrip("s") for w in re.findall(r"[a-z0-9]+", t.lower())
+                if w not in ("my", "the", "a", "an", "s")}
+    want = words(name)
+    return not want or len(want & words(text)) * 2 >= len(want)
+
+
+class CorrectObject(BaseModel):
+    wrong_name: str = Field(..., description="The wrong label, e.g. 'baby's biter'")
+    right_name: str = Field(..., description="What the object in front of the phone really is, e.g. 'mouse'")
 
 
 class StartSession(BaseModel):
@@ -127,7 +143,8 @@ SPECS = {
     "read_closeup": (ReadCloseup, "Ask for a close-up photo and read an instrument display or label from it. Logs the reading as a measurement if a session is active."),
     "highlight": (Highlight, "Highlight an object on the phone's live view, or show its last-seen card if it isn't in view."),
     "watch_bench": (WatchBench, "Start a safety watch when the user asks you to watch, keep an eye on or monitor something: 'unattended' (object on the bench while the user is away, e.g. the soldering iron) or 'present' (e.g. smoke). Not for finding objects."),
-    "teach_object": (TeachObject, "Remember the object in front of the phone under a personal name."),
+    "teach_object": (TeachObject, "Remember the object in front of the phone under a name the user says in THIS message ('this is my X'). Never for thanks, remarks or follow-ups."),
+    "correct_object": (CorrectObject, "The user says an object you labelled is really something else ('that's not X, it's Y'): removes the wrong label from the object in front of the phone and teaches the right one."),
     "start_session": (StartSession, "Start a new experiment/work session (repeats carry over unfinished steps)."),
     "resume_session": (ResumeSession, "Resume a session: last state, done and pending steps, next step."),
     "end_session": (Empty, "End the active session."),
@@ -167,6 +184,10 @@ class ToolBox:
     def mem(self):
         return self.ctx.memory
 
+    # What the user said this turn (set by the agent); None for direct calls like the
+    # Teach button, which name the object explicitly.
+    utterance = None
+
     def run(self, name, arguments):
         if name not in SPECS:
             return {"error": f"unknown tool {name}"}
@@ -204,6 +225,8 @@ class ToolBox:
         else:
             self.ctx.hub.push({"type": "last_seen", "entity": top})
             summary = self.mem.registry.describe(top)
+            if "match_score" in top:        # only looks a bit like it: say so
+                summary = f"I don't know a {a.query} by name. The closest thing I've seen: " + summary
             if top["last_seen"]:
                 self.ctx.hub.seek(top["id"], top["label"])
                 if top["stale"] and top["zone"]:
@@ -352,20 +375,52 @@ class ToolBox:
                 raise ToolError("Point the phone's camera at the object first.")
             frames = [p.latest["mobile"]]
         frames = frames[:TEACH_VIEWS]
-        crops, hows, concept = [], [], a.concept
+        if self.utterance is not None and not name_said(a.name, self.utterance):
+            # Phone test: "thanks for locating it" re-taught whatever was in view.
+            raise ToolError(f"To teach the {a.name}, hold it up and say its name.")
+        crops, hows, boxes, concept = [], [], [], a.concept
         for f in frames:
             box, c, how = self._teach_target(f, concept)
-            concept = concept or (c if how != "centre" else None)
+            if how == "centre":             # the middle of the view may be the background
+                continue
+            concept = concept or c
             crops.append(p.crop(f["image"], box))
             hows.append(how)
+            boxes.append(box)
+        if not crops:
+            raise ToolError(f"I can't pick out the {a.name}. Hold it closer, in the middle of "
+                            "the view, and say its name again.")
         keyframe = p._save_keyframe("mobile", frames[0]["image"], time.time(), force=True)
-        v = self.mem.registry.teach(a.name, crops, concept or "object", keyframe)
+        try:
+            v = self.mem.registry.teach(a.name, crops, concept or "object", keyframe)
+        except TeachConflict as e:
+            raise ToolError(f"That looks like your {e.label}. If it's really the {a.name}, "
+                            f"say: that's not the {e.label}, it's the {a.name}.")
+        self.mem.registry.saw_taught(v["id"], p.phone_zone.current(time.time()), boxes[0], keyframe)
         summary = f"Got it - that's your {a.name} ({len(crops)} view{'s' * (len(crops) > 1)})."
-        if all(h == "centre" for h in hows):
-            summary += " I couldn't pick out the object, so I used the middle of the view."
         if v.get("examples", 0) < 3:
             summary += " Turn it a little and say it again so I can recognise it from other angles."
         return {"entity": v, "views": hows, "summary": summary}
+
+    def correct_object(self, a: CorrectObject):
+        """Move the object in front of the phone from a wrong label to the right one."""
+        p, reg = self.ctx.perception, self.mem.registry
+        latest = p.latest.get("mobile")
+        if not latest or time.time() - latest["ts"] > 5:
+            raise ToolError(f"Point the phone at the {a.right_name} and tell me again.")
+        objs = [d for d in latest["detections"] if d.get("kind") == "object"]
+        wrong = " ".join(a.wrong_name.lower().split())
+        labelled = [d for d in objs if (d.get("label") or "").lower() == wrong]
+        if not (labelled or objs):
+            raise ToolError(f"I can't pick out the {a.right_name}. Hold it in the middle of the view.")
+        target = min(labelled or objs, key=_off_centre)
+        crop = p.crop(latest["image"], target["box"])
+        row = self.mem.db.one("SELECT id FROM entities WHERE deleted=0 AND lower(name)=?", (wrong,))
+        removed = reg.unlearn(row["id"], crop) if row else 0
+        v = reg.teach(a.right_name, [crop], target["concept"], latest.get("keyframe"), force=True)
+        reg.saw_taught(v["id"], p.phone_zone.current(time.time()), target["box"], latest.get("keyframe"))
+        return {"entity": v, "removed_views": removed,
+                "summary": f"Fixed: that's your {a.right_name}, not the {a.wrong_name}."}
 
     # -- sessions -------------------------------------------------------------
 

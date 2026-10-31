@@ -44,6 +44,31 @@ Kokoro voice "am_michael"; all on in `.env`, 110 tests pass). Waiting on the use
    don't mask the white laptop the boards sit on), then a live run: `forgemind serve` +
    `forgemind static-cam --device 0 --token <t>` + phone.
 
+## First real phone test (Oct 31)
+
+Run over zrok (`zrok2` 2.0.9 in `C:/Users/shash/bin`, launch config `forgemind-live`, new token
+each start). Speech, transcription and teaching worked; what failed, and the fixes (all in):
+- Small talk re-taught whatever was in view (39 teaches), so mouse crops were stored under
+  "baby's biter" and the mouse then matched as the biter. Now: teach needs the name in that
+  sentence (`name_said`), refuses instead of storing the middle of the view, and drops views
+  that look like another taught object (`Registry._keep_own_views`, `TeachConflict`).
+  Cost: big objects SAM can't box (cooler, cabinet) can no longer be taught.
+- New tool `correct_object` ("that's not X, it's Y"): `Registry.unlearn` + teach the right name.
+- Fast path was wrong on real speech at 0.98 confidence. resume_session is off it; a fast action
+  also needs the request's words (`INTENT`) and no pushback (`PUSHBACK`). On the 73 real
+  sentences (`eval/phone_test_oct31.txt`, `eval/real_speech.py`): 1 fast turn, correct. So the
+  0.98 on the hand-written test does NOT describe real speech; the words gate does the work.
+- Fragments ("um", "last") get no model call and no reply (`is_fragment`, event `ignored`).
+- A just-taught object counts as seen; where-is no longer matches on any shared word
+  ("baby's hand" isn't "baby's biter") and says when a match is only visual.
+- Every turn logs its time and path (event `turn`). Voice playback itself isn't logged.
+- agent-eval now has the phone test's remarks + a correction: 19 turns, median 0.93 s, $0.056.
+Not fixed: a sentence split in two by the transcriber; remarks to oneself still get a spoken
+reply; duplicates of untaught phone objects (about 50 objects with no zone tags up).
+Memory backups (git-ignored, deletable): `forgemind-data.bak-phonetest-20261031` (holds 1,429
+camera stills from the test, including the user's home), `forgemind-data.bak-evalworld-20261030`.
+Bench preview: `forgemind static-cam --device 0 --token <t> --show`.
+
 ## Where to pick up (Oct 30, end of session)
 
 Nothing left to build before the real phone test; everything below needs the user:

@@ -27,6 +27,11 @@ Rules:
 - "Watch / keep an eye on / monitor X (while I'm away)" means watch_bench,
   not where_is.
 - Small talk, thanks or general questions: answer briefly, no tool.
+- Act only on the user's latest message. Earlier messages are already handled:
+  never repeat their tools. A remark or half a sentence ("the logs for further
+  improvement", "okay fine then") gets a brief reply and no tool.
+- teach_object only when this message names the object in front of the phone.
+- "That's not X, it's Y" means correct_object, not where_is or teach_object.
 - Don't narrate what you see unprompted. Speak first only for safety.
 - Physical help is virtual for now: highlight things, point to them, read
   them; you cannot pick things up.
