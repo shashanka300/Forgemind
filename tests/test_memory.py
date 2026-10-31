@@ -346,3 +346,32 @@ def test_phone_keeps_adding_views_after_teaching(rt):
     near = _unit(base + 0.4 * np.roll(base, 3))
     assert rt.memory.registry.add_view(v["id"], near) in (True, False)      # guarded, never raises
     assert rt.memory.registry.add_view(v["id"], base) is False               # a copy adds nothing
+
+
+class StubDetector:
+    def __init__(self):
+        self.views, self.hits = [], []
+
+    def add(self, examples):
+        self.views += [e[0] for e in examples]
+
+    def remove(self, eid):
+        self.views = [v for v in self.views if v != eid]
+
+    def find(self, image):
+        return self.hits
+
+
+def test_taught_detector_labels_what_sam_has_no_word_for(rt):
+    img = scene([("hex key", .4, .4, .6, .6)], tag=2)
+    rt.perception.process("mobile", img, ts=time.time())
+    det = rt.perception.taught_detector = StubDetector()
+    v = rt.agent.tools.run("teach_object", {"name": "biter"})["entity"]
+    assert det.views and set(det.views) == {v["id"]}
+    det.hits = [(v["id"], (.1, .1, .3, .3), 0.8)]
+    rt.perception.process("mobile", scene([], tag=2), ts=time.time(), force=True)
+    dets = [d for d in rt.perception.latest["mobile"]["detections"] if d.get("kind") == "object"]
+    assert [d["label"] for d in dets] == ["biter"]
+    rt.memory.registry.delete(v["id"])
+    rt.perception.process("mobile", scene([], tag=2), ts=time.time(), force=True)
+    assert not [d for d in rt.perception.latest["mobile"]["detections"] if d.get("kind") == "object"]

@@ -36,6 +36,8 @@ STATIC_MIN_EVERY_S = 1.0
 # a taught object, more strictly than a named detection does.
 CANDIDATE_CONCEPT = "small object"
 CANDIDATE_MIN_SIM = 0.90
+TAUGHT_MIN_SIM = 0.72
+TAUGHT_SURE_CONF = 0.8
 MAX_CANDIDATES = 24
 MAX_TAUGHT_CONCEPTS = 10
 # One frame of "smoke" isn't smoke (phone test, Oct 31: a false critical alert).
@@ -151,6 +153,7 @@ class Perception:
         self.newest = {}
         self.hazard_frames = {}
         self.learning = {}                   # taught entity -> until when the phone adds views
+        self.taught_detector = None          # providers/yoloe_taught.py; None = candidates + PE
         self.bench_dirty = False
         self.latest = {}             # camera -> {"ts", "image", "detections", "zone"}
         self.recent = collections.deque(maxlen=RECENT_FRAMES)   # phone frames, newest last
@@ -255,7 +258,9 @@ class Perception:
         if not self.private:
             extra = [c for c in self.mem.registry.taught_concepts() if c not in self.s.concepts]
             extra = extra[:MAX_TAUGHT_CONCEPTS]
-            if self.mem.registry.any_taught():
+            if self.taught_detector:
+                extra = []
+            elif self.mem.registry.any_taught():
                 extra.append(CANDIDATE_CONCEPT)
         found = self.seg.segment(image, list(self.s.concepts) + extra)
         dets = one_label_per_object([d for d in found if d.concept not in extra])
@@ -272,7 +277,14 @@ class Perception:
         # one batched embedding call for every object crop in the frame
         objs = [d for d in dets if d.concept not in PRESENCE_CONCEPTS
                 and d.concept not in HAZARD_CONCEPTS] if not self.private else []
-        taken = self._taught_candidates(image, candidates_in, objs)
+        if self.taught_detector and not self.private:
+            taken = self._taught_by_detector(image)
+            # the taught identity wins over a generic word on the same box
+            same = lambda d: any(iou(d.box, t.box) >= 0.7 for t, _ in taken)
+            dets = [d for d in dets if d.concept in PRESENCE_CONCEPTS or d.concept in HAZARD_CONCEPTS or not same(d)]
+            objs = [d for d in objs if not same(d)]
+        else:
+            taken = self._taught_candidates(image, candidates_in, objs)
         if taken:
             dets = dets + [d for d, _ in taken]
             objs = objs + [d for d, _ in taken]
@@ -405,6 +417,21 @@ class Perception:
                 events.append({"type": "not_found", "entity_id": eid, "label": c["label"],
                                "zone": zone})
         return events
+
+    def _taught_by_detector(self, image):
+        out = []
+        hits = [h for h in self.taught_detector.find(image)
+                if self.mem.registry.get(h[0]) and box_area(h[1]) <= MAX_OBJECT_AREA]    # forgotten drop out
+        if not hits:
+            return out
+        # A second opinion: YOLOE alone put "tape" on a mouse (replay, Oct 31). The box must also look like
+        # what was taught, unless YOLOE is very sure.
+        vecs = self.emb.embed_images([self.crop(image, h[1]) for h in hits])
+        for (eid, box, conf), v in zip(hits, vecs):
+            sim = self.mem.registry.similarity_to(eid, _unit(v))
+            if conf >= TAUGHT_SURE_CONF or sim >= TAUGHT_MIN_SIM:
+                out.append((Detection(self.mem.registry.get(eid)["concept"], box, conf), eid))
+        return out
 
     def _taught_candidates(self, image, candidates, named):
         """[(detection, entity id)]: the best-looking candidate per taught object."""

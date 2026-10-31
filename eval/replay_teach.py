@@ -62,6 +62,8 @@ def main():
     frames = [(t, f) for t, f in all_frames if start <= t <= end]
     print(f"{len(frames)} frames, teaching {[n for _, n in teach]}")
     pending, hits, ms, sheet = list(teach), {}, [], []
+    everywhere = {}
+    print("taught objects found by:", "yoloe" if rt.perception.taught_detector else "sam+pe")
     for t, f in frames:
         while pending and pending[0][0] <= t:
             _, name = pending.pop(0)
@@ -77,6 +79,9 @@ def main():
         r = rt.perception.process("mobile", Image.open(f).convert("RGB"), ts=t)
         ms.append((time.perf_counter() - t0) * 1000)
         labels = [(d["box"], d.get("label") or d["concept"]) for d in r.get("detections", []) if d.get("kind") == "object"]
+        for b, l in labels:
+            if l in hits:
+                everywhere.setdefault(l, []).append((t, f, b))
         for name, h in hits.items():
             if t - h["t"] <= a.after:
                 h["frames"] += 1
@@ -87,9 +92,14 @@ def main():
     print(f"frame time median {statistics.median(ms):.0f} ms, p90 {sorted(ms)[int(.9 * len(ms))]:.0f} ms")
     for name, h in hits.items():
         print(f"  {name}: labelled in {h['shown']}/{h['frames']} frames in the next {a.after:.0f} s")
+    sheet = []                                   # evenly across the whole run: wrong labels show here
+    for name, seen_at in everywhere.items():
+        print(f"  {name}: labelled in {len(seen_at)} frames in the whole replay")
+        for t, f, b in seen_at[::max(1, len(seen_at) // 4)][:4]:
+            sheet.append((f"{name} +{t - hits[name]['t']:.0f}s", f, [(b, name)]))
     ents = rt.memory.registry.list()
     print(len(ents), "objects:", sorted(v["label"] for v in ents))
-    W, H, cols = 240, 320, 6
+    W, H, cols = 180, 240, 8
     rows = (len(sheet) + cols - 1) // cols or 1
     o = Image.new("RGB", (W * cols, H * rows), (20, 20, 20))
     for i, (title, f, boxes) in enumerate(sheet):

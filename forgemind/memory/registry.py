@@ -103,6 +103,10 @@ class Registry:
                     best, best_sim = e["id"], sim
         return (best, best_sim) if best_sim >= min_sim else (None, best_sim)
 
+    def similarity_to(self, eid, vec):
+        rows = self.db.all("SELECT vec FROM entity_refs WHERE entity_id=?", (eid,))
+        return max((float(vec @ blob_to_vec(r["vec"])) for r in rows), default=0.0)
+
     def any_taught(self):
         return bool(self.db.one("SELECT 1 AS x FROM entities WHERE deleted=0 AND taught=1 LIMIT 1"))
 

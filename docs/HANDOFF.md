@@ -109,6 +109,15 @@ Not covered by these: real audio, read_closeup, an alert firing live. Live Spark
 prompt tokens to explain it. Researched alternatives (YOLOE visual prompts, OWLv2, SAM 3 exemplars
 across images): kept SAM + PE for now, YOLOE is the first thing to try if recall stays poor.
 
+## YOLOE for taught objects (branch `yoloe`, not merged)
+
+`providers/yoloe_taught.py`: the teach box is a visual prompt; embeddings made once, kept in `<data>/taught`, all checked per
+frame. PE must agree (sim >= 0.72) unless conf >= 0.8; `FM_YOLOE_CONF=0.45`, `FM_YOLOE_WEIGHTS=F:/models/yoloe/yoloe-26l-seg.pt`
+(empty = SAM + PE). Replay: 19/19 sampled labels right, ~230 ms per frame, finds the biter across the room, but fewer labels
+(switch 1, tape 2 frames). SAM stays for the word list: YOLOE word prompts need Ultralytics' CLIP from GitHub, which the permission
+system blocked. Install notes: `ultralytics --no-deps` plus matplotlib, polars, ultralytics-thop (avoids a second OpenCV), not
+in pyproject yet. Licence: AGPL-3.0; check before the repo goes public. Not run live yet.
+
 ## Giving it eyes and memory back (test 4)
 
 `FM_SEND_FRAMES=false` made it nearly blind ("nothing I recognise"). Now one phone frame goes to Spark only on visual

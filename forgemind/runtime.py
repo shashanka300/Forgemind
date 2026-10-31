@@ -26,6 +26,13 @@ class Runtime:
         self.segmenter = segmenter or build_segmenter(settings, self.embedder)
         self.perception = Perception(settings, self.memory, self.segmenter, self.embedder,
                                      self.hub, self.safety)
+        if settings.yoloe_weights:
+            try:
+                from forgemind.providers.yoloe_taught import TaughtDetector
+                self.perception.taught_detector = TaughtDetector(
+                    settings.yoloe_weights, self.memory.keyframes_dir.parent / "taught", settings.yoloe_conf)
+            except Exception as e:      # SAM + PE still work
+                print(f"YOLOE unavailable: {e}")
         self.llm = llm or build_llm(settings)
         self.ctx = Context(settings, self.memory, self.perception, self.safety, self.hub, self.llm)
         self.agent = Agent(self.ctx)
@@ -65,6 +72,7 @@ class Runtime:
                 "embedder": self.embedder.name,
                 "asr": "muse-voice-transcribe" if self.asr.available else "browser",
                 "system1": self.settings.system1 if self.agent.system1 else None,
+                "taught_detector": "yoloe" if self.perception.taught_detector else "sam+pe",
                 "tts": (f"kokoro:{self.speaker.voice}" if self.speaker and self.speaker.ready
                         and not self.speaker.error else None),
                 "vector_backend": self.memory.index.name,

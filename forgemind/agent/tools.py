@@ -452,18 +452,20 @@ class ToolBox:
         if self.utterance is not None and not name_said(a.name, self.utterance):
             # Phone test: "thanks for locating it" re-taught whatever was in view.
             raise ToolError(f"To teach the {a.name}, hold it up and say its name.")
-        crops, hows, boxes, concept = [], [], [], a.concept
+        crops, hows, boxes, images, concept = [], [], [], [], a.concept
         for f in frames:
             box, c, how = self._teach_target(f, concept, a.name)
             concept = concept or (c if how != "centre" else None)
             crops.append(p.crop(f["image"], box))
             hows.append(how)
             boxes.append(box)
+            images.append(f["image"])
         # Better views only, if there are any; otherwise the middle of the view, with the
         # box shown: refusing felt broken (phone test, Oct 31), and a wrong one can be corrected.
         good = [i for i, h in enumerate(hows) if h != "centre"]
         if good:
             crops, boxes, hows = [crops[i] for i in good], [boxes[i] for i in good], [hows[i] for i in good]
+            images = [images[i] for i in good]
         keyframe = p._save_keyframe("mobile", frames[0]["image"], time.time(), force=True)
         try:
             v = self.mem.registry.teach(a.name, crops, concept or "object", keyframe)
@@ -474,6 +476,8 @@ class ToolBox:
         summary = f"Got it, that's your {a.name}. Turn it around for a few seconds so I learn it."
         p.learning[v["id"]] = time.time() + LEARN_FOR_S
         self._save_reference(v["id"], crops[0])
+        if p.taught_detector:
+            p.taught_detector.add([(v["id"], im, b) for im, b in zip(images, boxes)])
         # Show what was stored, so a wrong pick is seen at once.
         self.ctx.hub.push({"type": "highlight", "entity_id": v["id"], "label": a.name, "box": list(boxes[0]),
                            "found": True})
@@ -499,9 +503,13 @@ class ToolBox:
         crop = p.crop(latest["image"], target["box"])
         row = self.mem.db.one("SELECT id FROM entities WHERE deleted=0 AND lower(name)=?", (wrong,))
         removed = reg.unlearn(row["id"], crop) if row else 0
+        if row and p.taught_detector:
+            p.taught_detector.remove(row["id"])
         v = reg.teach(a.right_name, [crop], target["concept"], latest.get("keyframe"), force=True)
         reg.saw_taught(v["id"], p.phone_zone.current(time.time()), target["box"], latest.get("keyframe"))
         self._save_reference(v["id"], crop)
+        if p.taught_detector:
+            p.taught_detector.add([(v["id"], latest["image"], target["box"])])
         return {"entity": v, "removed_views": removed,
                 "summary": f"Fixed: that's your {a.right_name}, not the {a.wrong_name}."}
 
