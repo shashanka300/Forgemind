@@ -109,6 +109,15 @@ Not covered by these: real audio, read_closeup, an alert firing live. Live Spark
 prompt tokens to explain it. Researched alternatives (YOLOE visual prompts, OWLv2, SAM 3 exemplars
 across images): kept SAM + PE for now, YOLOE is the first thing to try if recall stays poor.
 
+## Giving it eyes and memory back (test 4)
+
+`FM_SEND_FRAMES=false` made it nearly blind ("nothing I recognise"). Now one phone frame goes to Spark only on visual
+questions (`VISUAL`, `FM_VISION_ON_ASK`; the user OK'd this). `where_is` asks Spark to compare a saved reference
+crop (`<data>/refs/<id>.jpg`) with the phone view when matching misses (`_look_for`). New tool `remember_fact`; 20 notes
+in the situation. Hands-free scraps wait and join the next piece; lone scraps get no reply. `SAVE_CLAIM` catches
+"got your X" with no tool. Teach merges "my X"/plurals and adds views for 6 s. Phone says "one moment" only after 700 ms.
+Check with `eval/real_turns.py` (real sentences, saved frames).
+
 ## Listening restored (Oct 31, test 3)
 Open at end of session: held objects are labelled in few frames (min-sim 0.85 vs 0.90 barely differs on replay: clippers 7/63 both, timer 11 vs 9 of 52; kept 0.90; the frames don't show how long each object stayed in view); keyframe pruning deletes frames before they can be replayed; live Spark 3.2-3.5 s vs 1.5 s in rehearsal, cause unknown (prompt ~3.7k tokens is not it); Desk mic button sits in `.controls`, the user couldn't find it: unchecked on a phone. Memory cleared; backups `forgemind-data.bak-*` (git-ignored, deletable, hold camera stills of the user's home).
 

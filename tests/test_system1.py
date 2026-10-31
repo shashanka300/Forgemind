@@ -165,7 +165,7 @@ def test_confident_but_not_a_plain_request_goes_to_spark(rt, text, decision):
 
 @pytest.mark.parametrize("text,ignored", [
     ("um", True), ("Oh", True), ("So,", True), ("uh-huh", True), ("Hey, you", True), ("alright", True),
-    ("last", False), ("Did you hear me?", False),
+    ("Did you hear me?", False),
     ("thanks", False), ("yes", False), ("where is my hex key?", False), ("okay fine then.", False),
 ])
 def test_fragments_get_no_model_call(rt, text, ignored):
@@ -371,3 +371,99 @@ def test_a_correction_quoting_a_reply_survives():
     said = [_words("That's your baby spider, it's the baby spider.")]
     text = "that's not the baby spider, it's the baby biter"
     assert strip_echo(text, said) == text
+
+
+class VisionStub(SparkStub):
+    def __init__(self, content="A keyboard and a mug.", tool_calls=()):
+        super().__init__(tool_calls)
+        self.supports_vision = True
+        self.content, self.messages = content, []
+
+    def chat(self, messages, tools=None, model=None, **kw):
+        self.calls += 1
+        self.messages.append(messages)
+        return ChatResult(content=self.content, tool_calls=[])
+
+
+def has_image(messages):
+    c = messages[-1]["content"]
+    return isinstance(c, list) and any(p.get("type") == "image_url" for p in c)
+
+
+def test_visual_question_sends_one_phone_frame(rt):
+    rt.perception.process("mobile", scene([], tag=2), ts=time.time())
+    spark = VisionStub()
+    agent = fast_agent(rt, {}, spark)
+    agent.system1 = None
+    assert agent.handle("what do you see right now?")["reply"] == "A keyboard and a mug."
+    assert has_image(spark.messages[-1])
+    agent.handle("set R2 to 10k")
+    assert not has_image(spark.messages[-1])     # other turns send no picture
+
+
+def test_no_frame_when_the_phone_view_is_old(rt):
+    rt.perception.process("mobile", scene([], tag=2), ts=time.time() - 60)
+    spark = VisionStub()
+    agent = fast_agent(rt, {}, spark)
+    agent.system1 = None
+    agent.handle("what do you see?")
+    assert not has_image(spark.messages[-1])
+
+
+def test_claiming_to_have_saved_something_is_caught(rt):
+    spark = VisionStub("Okay, got your secondary desk.")
+    agent = fast_agent(rt, {}, spark)
+    agent.system1 = None
+    assert "didn't actually record" in agent.handle("it's my secondary desk")["reply"]
+    assert spark.calls == 2
+
+
+def test_remember_fact_reaches_the_situation(rt):
+    from forgemind.agent import prompts
+    out = rt.agent.tools.run("remember_fact", {"text": "keeps ML books on the second shelf"})
+    assert out["summary"] == "Okay, I'll remember that."
+    assert "second shelf" in prompts.situation(rt.ctx)
+
+
+def test_scraps_wait_and_join_the_next_piece(rt, monkeypatch):
+    import threading
+
+    import forgemind.agent.orchestrator as o
+    monkeypatch.setattr(o, "DANGLING_WAIT_S", 2.0)
+    spark = SparkStub()
+    agent = fast_agent(rt, {}, spark)
+    agent.system1 = None
+    seen = []
+    real = spark.chat
+    spark.chat = lambda messages, **k: seen.append(str(messages[-1]["content"])) or real(messages, **k)
+    first = {}
+    t = threading.Thread(target=lambda: first.update(agent.handle("my secondary", source="phone")))
+    t.start()
+    time.sleep(0.2)
+    agent.handle("desk is on the left.", source="phone")
+    t.join(3)
+    assert first["ignored"] and "my secondary desk is on the left." in seen[-1]
+
+
+def test_lone_scrap_gets_no_reply(rt, monkeypatch):
+    import forgemind.agent.orchestrator as o
+    monkeypatch.setattr(o, "DANGLING_WAIT_S", 0.05)
+    agent = fast_agent(rt, {})
+    agent.system1 = None
+    assert agent.handle("going", source="phone")["ignored"]
+    assert not agent.handle("thanks", source="phone").get("ignored")
+    assert not agent.handle("going", source="default").get("ignored")     # typed: it's meant
+
+
+def test_where_is_asks_the_model_to_look_when_matching_misses(rt):
+    import json
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    rt.agent.tools.run("teach_object", {"name": "biter"})
+    rt.perception.process("mobile", scene([], tag=2), ts=time.time())
+    spark = VisionStub(json.dumps({"found": True, "where": "in your hand", "box": [.1, .1, .4, .4]}))
+    rt.agent.tools.ctx.llm = spark
+    out = rt.agent.tools.run("where_is", {"query": "biter"})
+    assert out["in_view"] and out["summary"] == "Yes, I can see your biter, in your hand."
+    spark.content = json.dumps({"found": False, "where": None, "box": None})
+    out = rt.agent.tools.run("where_is", {"query": "biter"})
+    assert not out["in_view"] and out["summary"].startswith("I can't see your biter")

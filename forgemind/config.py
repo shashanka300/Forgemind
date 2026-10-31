@@ -82,6 +82,8 @@ class Settings:
     system1: str = ""
     system1_min_conf: float = 0.96
     system1_verify: bool = True
+    # one phone frame goes to the model when the user asks something visual
+    vision_on_ask: bool = True
     wake_word: bool = False    # hands-free only acts on "Forge, ..."
     desk_mic: str = "MX Brio"    # input device name (cameras/desk_mic.py)
     zrok_name: str = ""       # reserved zrok name: a fixed phone address
@@ -139,6 +141,7 @@ class Settings:
             system1=_env("FM_SYSTEM1"),
             system1_min_conf=float(_env("FM_SYSTEM1_MIN_CONF", "0.96")),
             system1_verify=_bool("FM_SYSTEM1_VERIFY", True),
+            vision_on_ask=_bool("FM_VISION_ON_ASK", True),
             wake_word=_bool("FM_WAKE_WORD", False),
             desk_mic=_env("FM_DESK_MIC", "MX Brio"),
             zrok_name=_env("FM_ZROK_NAME"),

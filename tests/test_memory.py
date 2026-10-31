@@ -324,3 +324,25 @@ def test_one_frame_of_smoke_is_no_alarm(rt):
     rt.perception.process("static", scene([]), ts=t + 2, force=True)
     rt.perception.process("static", scene([]), ts=t + 4, force=True)
     assert "smoke" in rt.safety.last_seen
+
+
+def test_my_x_and_plural_are_the_same_taught_object(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    rt.agent.tools.run("teach_object", {"name": "my scissor"})
+    assert rt.memory.registry.find("scissor")[0]["name"] == "scissor"
+    rt.agent.tools.run("teach_object", {"name": "scissors"})
+    assert [v["label"] for v in rt.memory.registry.list() if v["taught"]] == ["scissor"]
+
+
+def test_phone_keeps_adding_views_after_teaching(rt):
+    from forgemind.perception.pipeline import _unit
+    import numpy as np
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    v = rt.agent.tools.run("teach_object", {"name": "small key"})["entity"]
+    assert rt.perception.learning[v["id"]] > time.time()
+    refs = rt.memory.db.all("SELECT vec FROM entity_refs WHERE entity_id=?", (v["id"],))
+    from forgemind.memory.registry import blob_to_vec
+    base = blob_to_vec(refs[0]["vec"])
+    near = _unit(base + 0.4 * np.roll(base, 3))
+    assert rt.memory.registry.add_view(v["id"], near) in (True, False)      # guarded, never raises
+    assert rt.memory.registry.add_view(v["id"], base) is False               # a copy adds nothing

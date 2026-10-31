@@ -32,6 +32,12 @@ so in "problem"). Only give a unit you can see on the display. Never guess digit
 # Teaching takes the object from up to TEACH_VIEWS phone frames of the last
 # TEACH_WINDOW_S seconds (the phone sends a frame every ~0.5-1 s).
 TEACH_VIEWS = 3
+LEARN_FOR_S = 6.0       # after teaching, the phone keeps adding views of the object
+LOOK_MAX_AGE_S = 5.0
+LOOK_PROMPT = """The first picture shows the user's {name}. The second is what their phone sees now.
+Is that same object in the second picture? Answer JSON only:
+{{"found": true or false, "where": "a few words, e.g. 'in your hand'", "box": [x0, y0, x1, y1]}}
+The box is in the second picture, each value 0 to 1; null if not found."""
 TEACH_WINDOW_S = 4.0
 # Tools whose `summary` needs the model to phrase an answer (it lists or
 # compares things). Every other tool's summary is already the spoken reply, so
@@ -81,6 +87,10 @@ def name_said(name, text):
                 if w not in ("my", "the", "a", "an", "s")}
     want = words(name)
     return not want or len(want & words(text)) * 2 >= len(want)
+
+
+class RememberFact(BaseModel):
+    text: str = Field(..., description="Short third-person fact, e.g. 'keeps ML books on the second shelf'")
 
 
 class CorrectObject(BaseModel):
@@ -145,6 +155,7 @@ SPECS = {
     "highlight": (Highlight, "Highlight an object on the phone's live view, or show its last-seen card if it isn't in view."),
     "watch_bench": (WatchBench, "Start a safety watch when the user asks you to watch, keep an eye on or monitor something: 'unattended' (object on the bench while the user is away, e.g. the soldering iron) or 'present' (e.g. smoke). Not for finding objects."),
     "teach_object": (TeachObject, "Remember the object in front of the phone under a name the user says in THIS message ('this is my X'). Never for thanks, remarks or follow-ups."),
+    "remember_fact": (RememberFact, "Save something the user wants remembered: where things are kept, what a place is, how they work."),
     "correct_object": (CorrectObject, "The user says an object you labelled is really something else ('that's not X, it's Y'): removes the wrong label from the object in front of the phone and teaches the right one."),
     "start_session": (StartSession, "Start a new experiment/work session (repeats carry over unfinished steps)."),
     "resume_session": (ResumeSession, "Resume a session: last state, done and pending steps, next step."),
@@ -220,6 +231,26 @@ class ToolBox:
             return {"found": False, "summary": f"I haven't seen anything like '{a.query}' yet."}
         top = hits[0]
         in_view = self._in_mobile_view(top["id"])
+        if not in_view and "match_score" not in top:
+            look = self._look_for(top)
+            if look and look.get("found"):
+                where = str(look.get("where") or "").strip().rstrip(".")
+                box = look.get("box")
+                good = (isinstance(box, list) and len(box) == 4 and all(isinstance(x, (int, float)) for x in box)
+                        and 0 <= box[0] < box[2] <= 1 and 0 <= box[1] < box[3] <= 1)
+                if good:
+                    self.ctx.hub.push({"type": "highlight", "entity_id": top["id"], "label": top["label"],
+                                       "box": box, "found": True})
+                self.mem.registry.saw_taught(top["id"], self.ctx.perception.phone_zone.current(time.time()),
+                                             box if good else (0.25, 0.25, 0.75, 0.75))
+                said = f"Yes, I can see your {top['label']}" + (f", {where}." if where else ".")
+                return {"found": True, "results": hits, "in_view": True, "summary": said,
+                        "stale": False, "confidence": 0.9, "seeking": False, "history": []}
+            if look is not None:
+                ago = f"I last saw it {top['ago']}." if top["last_seen"] else ""
+                return {"found": True, "results": hits, "in_view": False, "stale": top["stale"],
+                        "confidence": top["confidence"], "seeking": False, "history": [],
+                        "summary": f"I can't see your {top['label']} in the phone's view right now. {ago}".strip()}
         if in_view:
             self.ctx.hub.push({"type": "highlight", "entity_id": top["id"], "label": top["label"],
                                "box": in_view["box"]})
@@ -249,6 +280,31 @@ class ToolBox:
                 "stale": top["stale"], "confidence": top["confidence"],
                 "seeking": not in_view and bool(top["last_seen"]),
                 "history": self.mem.registry.history(top["id"], 5)}
+
+    def _save_reference(self, eid, crop):
+        refs = self.mem.keyframes_dir.parent / "refs"
+        refs.mkdir(exist_ok=True)
+        crop.convert("RGB").save(refs / f"{eid}.jpg", "JPEG", quality=85)
+
+    def _look_for(self, top):
+        """Ask the model whether a taught object is in the phone's view; None if it can't say.
+
+        Comparing pictures this way catches what the embedding match misses.
+        """
+        llm, latest = self.ctx.llm, self.ctx.perception.latest.get("mobile")
+        ref = self.mem.keyframes_dir.parent / "refs" / f"{top['id']}.jpg"
+        if (not getattr(llm, "supports_vision", False) or not latest or not ref.exists()
+                or time.time() - latest["ts"] > LOOK_MAX_AGE_S):
+            return None
+        from PIL import Image
+        try:
+            res = llm.chat([{"role": "user", "content": [
+                {"type": "text", "text": LOOK_PROMPT.format(name=top["label"])},
+                image_part(Image.open(ref), max_px=384), image_part(latest["image"], max_px=768)]}],
+                model=llm.model_for("worker"), json_mode=True)
+            return json.loads(res.content or "{}")
+        except Exception:
+            return None
 
     def _in_mobile_view(self, eid):
         latest = self.ctx.perception.latest.get("mobile")
@@ -391,6 +447,8 @@ class ToolBox:
                 raise ToolError("Point the phone's camera at the object first.")
             frames = [p.latest["mobile"]]
         frames = frames[:TEACH_VIEWS]
+        name = _plain_name(a.name, keep_case=True) or a.name    # "my scissor" is "scissor"
+        a = a.model_copy(update={"name": self.mem.registry.same_name(name)})
         if self.utterance is not None and not name_said(a.name, self.utterance):
             # Phone test: "thanks for locating it" re-taught whatever was in view.
             raise ToolError(f"To teach the {a.name}, hold it up and say its name.")
@@ -413,11 +471,18 @@ class ToolBox:
             raise ToolError(f"That looks like your {e.label}. If it's really the {a.name}, "
                             f"say: that's not the {e.label}, it's the {a.name}.")
         self.mem.registry.saw_taught(v["id"], p.phone_zone.current(time.time()), boxes[0], keyframe)
-        summary = f"Got it, that's your {a.name}."
+        summary = f"Got it, that's your {a.name}. Turn it around for a few seconds so I learn it."
+        p.learning[v["id"]] = time.time() + LEARN_FOR_S
+        self._save_reference(v["id"], crops[0])
         # Show what was stored, so a wrong pick is seen at once.
         self.ctx.hub.push({"type": "highlight", "entity_id": v["id"], "label": a.name, "box": list(boxes[0]),
                            "found": True})
         return {"entity": v, "views": hows, "summary": summary}
+
+    def remember_fact(self, a: RememberFact):
+        s = self.mem.experiments.active()
+        self.mem.notes.add("fact", a.text, source_turn=self.utterance, session_id=s["id"] if s else None)
+        return {"summary": "Okay, I'll remember that."}
 
     def correct_object(self, a: CorrectObject):
         """Move the object in front of the phone from a wrong label to the right one."""
@@ -436,6 +501,7 @@ class ToolBox:
         removed = reg.unlearn(row["id"], crop) if row else 0
         v = reg.teach(a.right_name, [crop], target["concept"], latest.get("keyframe"), force=True)
         reg.saw_taught(v["id"], p.phone_zone.current(time.time()), target["box"], latest.get("keyframe"))
+        self._save_reference(v["id"], crop)
         return {"entity": v, "removed_views": removed,
                 "summary": f"Fixed: that's your {a.right_name}, not the {a.wrong_name}."}
 
@@ -571,9 +637,10 @@ class ToolBox:
         return {"summary": "Sent."}
 
 
-def _plain_name(name):
+def _plain_name(name, keep_case=False):
     """A taught name as a word SAM can look for: "my baby's biter" -> "baby's biter"."""
-    return " ".join(w for w in (name or "").lower().split() if w not in ("my", "the", "a", "an", "our"))
+    words = [w for w in (name or "").split() if w.lower() not in ("my", "the", "a", "an", "our")]
+    return " ".join(words if keep_case else [w.lower() for w in words])
 
 
 def pick_held(boxes, hands):

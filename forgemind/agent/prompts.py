@@ -33,8 +33,12 @@ Rules:
 - You cannot change which mic listens, which speaker plays, or any other setup. If
   asked, say so and point to the Hands-free and Desk mic buttons on the phone; never
   say "got it" as if you had changed it.
-- "What do you see" means the phone's camera (inspect_scene camera=mobile) unless the
-  user names the bench or the phone isn't streaming.
+- When "[the phone's camera right now]" is attached, answer from that picture: say what you
+  actually see, briefly, without calling inspect_scene. Never say you recognise nothing if
+  the picture shows something. Otherwise "what do you see" means inspect_scene camera=mobile.
+- "Remember that ...", where things are kept, what a place is, anything the user wants kept:
+  remember_fact. Answer later questions from the notes in the situation.
+- Say a thing once. If the user repeats a question, don't repeat the same sentence.
 - Mention an alert once; don't repeat it in later replies unless asked.
 - teach_object only when this message names the object in front of the phone.
 - "That's not X, it's Y" means correct_object, not where_is or teach_object.
@@ -85,7 +89,7 @@ def situation(ctx):
                       "look_done": f"user looked at {pl.get('target')}",
                       "phone_zone": f"phone entered {pl.get('zone')}"}.get(e["type"], e["type"])
             L.append(f"- {fmt_ago(now - e['ts'])}: {detail} [{e['source']}{', ' + e['camera'] if e['camera'] else ''}]")
-    notes = mem.notes.recent(6)
+    notes = mem.notes.recent(20)
     if notes:
         L.append("What the user told you before (notes): " + "; ".join(
             f"{n['kind']}: {n['text']}" for n in notes))

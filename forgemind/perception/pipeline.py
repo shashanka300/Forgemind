@@ -150,6 +150,7 @@ class Perception:
         self.gate = ChangeGate()
         self.newest = {}
         self.hazard_frames = {}
+        self.learning = {}                   # taught entity -> until when the phone adds views
         self.bench_dirty = False
         self.latest = {}             # camera -> {"ts", "image", "detections", "zone"}
         self.recent = collections.deque(maxlen=RECENT_FRAMES)   # phone frames, newest last
@@ -317,6 +318,8 @@ class Perception:
                     score=d.score, crop=None, keyframe=keyframe, ts=ts,
                     exclude=claimed, vec=vec, entity_id=eid)
                 claimed.add(r["entity_id"])
+                if camera == "mobile" and ts < self.learning.get(r["entity_id"], 0):
+                    self.mem.registry.add_view(r["entity_id"], vec)
                 item.update(entity_id=r["entity_id"], label=r["label"], kind="object")
                 if r["event"]:
                     events.append({"type": r["event"], "entity_id": r["entity_id"],

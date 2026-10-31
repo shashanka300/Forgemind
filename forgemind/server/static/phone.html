@@ -431,14 +431,16 @@ function addMsg(who, text, trace) {
 }
 // A turn on screen: the user's words, an instant spoken acknowledgement, a "…" until the answer.
 function beginTurn(text) {
-  const ack = ackFor(text);
-  if (ack) speak(ack);
   addMsg("u", text);
   const pending = document.createElement("div"); pending.className = "msg a muted"; pending.textContent = "…";
   $("log").prepend(pending);
-  return {pending, ack};
+  const t = {pending, ack: false};
+  // Only if the answer isn't already here: a fast answer needs no "one moment".
+  t.timer = setTimeout(() => { t.ack = true; speak(ackFor(text) || "One moment."); }, 700);
+  return t;
 }
 function finishTurn(t, r) {
+  clearTimeout(t.timer);
   t.pending.remove();
   if (r.reply) { addMsg("a", r.reply, r.trace); speak(r.reply, {queue: !!t.ack}); }   // fragments get none
   refresh();
@@ -447,7 +449,7 @@ async function send(text) {
   text = text.trim(); if (!text) return;
   const t = beginTurn(text);
   try { finishTurn(t, await post("/api/chat", {text})); }
-  catch (e) { t.pending.textContent = "Couldn't reach ForgeMind."; refresh(); }
+  catch (e) { clearTimeout(t.timer); t.pending.textContent = "Couldn't reach ForgeMind."; refresh(); }
 }
 // Hands-free turns the server answers itself (no /api/chat round trip): turn -> reply.
 const serverTurns = {};

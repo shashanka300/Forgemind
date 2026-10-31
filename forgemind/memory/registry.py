@@ -245,6 +245,24 @@ class Registry:
             " sightings=sightings+1, last_keyframe=COALESCE(?, last_keyframe) WHERE id=?",
             (time.time(), zone, ",".join(f"{b:.4f}" for b in box), keyframe, eid))
 
+    def add_view(self, eid, vec, max_views=12, min_own=0.75):
+        """Another view of a taught object: not a near-copy, and still looking like itself."""
+        rows = self.db.all("SELECT vec FROM entity_refs WHERE entity_id=?", (eid,))
+        sims = [float(vec @ blob_to_vec(r["vec"])) for r in rows]
+        if len(rows) >= max_views or not sims or max(sims) > 0.97 or max(sims) < min_own:
+            return False
+        self.db.execute("INSERT INTO entity_refs(entity_id,vec,keyframe,created_at) VALUES(?,?,?,?)",
+                        (eid, vec_to_blob(vec), None, time.time()))
+        return True
+
+    def same_name(self, name):
+        """An existing taught name that is this one ("scissors" = "scissor"), else `name`."""
+        stem = lambda n: " ".join(w.rstrip("s") for w in n.lower().split())
+        for r in self.db.all("SELECT name FROM entities WHERE deleted=0 AND taught=1 AND name IS NOT NULL"):
+            if stem(r["name"]) == stem(name):
+                return r["name"]
+        return name
+
     def unlearn(self, eid, crop):
         """Forget the stored views of `eid` that look like `crop` (a wrong label).
 

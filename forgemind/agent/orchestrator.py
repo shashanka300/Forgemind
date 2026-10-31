@@ -137,6 +137,30 @@ def promises_setup_change(reply):
             and bool(re.search(r"\b(?:got it|okay|ok|sure|understood|i'll|i will|staying)\b", t, re.I)))
 
 
+# A question about what's in view gets the phone's latest frame, so the model can really look.
+# Without it, "what do you see" only knew SAM's word list (phone test 4: "nothing I recognise").
+VISUAL = re.compile(r"\b(?:see|seeing|look|looking|looks|recogni[sz]e|detect|in front|screen|in view|"
+                    r"camera|holding|show(?:ing)?|(?:what|is|are)\s+(?:this|that|these|those)|what's that)\b", re.I)
+FRAME_MAX_AGE_S = 10.0
+# "Okay, got your secondary desk" with no tool called: nothing was saved.
+SAVE_CLAIM = re.compile(r"\b(?:got your|noted|i'll remember|i will remember|saved|i've remembered|"
+                        r"i've recorded|i'll keep that in mind)\b", re.I)
+# Hands-free scraps: an unfinished sentence waits for the rest, which is joined on.
+UNFINISHED_MAX_WORDS = 3
+SCRAP_MAX_WORDS = 2
+_SHORT_OK = {"yes", "yeah", "yep", "no", "nope", "thanks", "hello", "hi", "stop", "help", "bye", "okay",
+             "ok", "sure", "next", "done", "cancel", "undo", "why", "what", "where", "continue"}
+
+
+def sounds_unfinished(text):
+    t = text.strip()
+    return is_cut_off(t) or (not t.endswith((".", "?", "!")) and len(t.split()) <= UNFINISHED_MAX_WORDS)
+
+
+def is_scrap(words):
+    return len(words) <= SCRAP_MAX_WORDS and not any(w in _SHORT_OK for w in words)
+
+
 HISTORY_TURNS = 8
 
 
@@ -163,6 +187,7 @@ class Agent:
         self._last_turn = {}                    # source -> (ts, words)
         self._follow_until = 0.0                # hands-free needs no wake word until then
         self._last_usage = {}
+        self._frame_sent = False
         self._llm_ms = 0
         self.system1 = System1(ctx.settings, ctx.memory) if ctx.settings.system1 else None
         self.last_verify_thread = None
@@ -183,6 +208,16 @@ class Agent:
 
     def _user_message(self, text, prefix=""):
         llm, p = self.ctx.llm, self.ctx.perception
+        self._frame_sent = False
+        if not self.ctx.settings.send_frames and getattr(llm, "supports_vision", False) \
+                and self.ctx.settings.vision_on_ask and VISUAL.search(text):
+            item = p.latest.get("mobile")
+            if item and time.time() - item["ts"] < FRAME_MAX_AGE_S:
+                self._frame_sent = True
+                return {"role": "user", "content": [
+                    {"type": "text", "text": prefix + text},
+                    {"type": "text", "text": "[the phone's camera right now]"},
+                    image_part(item["image"], max_px=768, quality=75)]}
         if not (self.ctx.settings.send_frames and getattr(llm, "supports_vision", False)):
             return {"role": "user", "content": prefix + text}
         parts = [{"type": "text", "text": prefix + text}]
@@ -340,16 +375,27 @@ class Agent:
         # What the phone sees now, not when the agent gets to this turn: by then the object
         # being taught may have been put down.
         frames = self.ctx.perception.recent_frames(4.0)
-        me = {"words": words, "stop": threading.Event()}
+        voice = source != "default"
+        holding = is_cut_off(text) or (voice and sounds_unfinished(text))
+        me = {"words": words, "text": text, "stop": threading.Event(), "open": holding}
         with self._wait_lock:
-            for w in self._waiting:             # this sentence continues one still waiting
-                if words[:len(w["words"])] == w["words"]:
+            for w in self._waiting:
+                if words[:len(w["words"])] == w["words"]:      # repeats it and goes on
+                    w["stop"].set()
+                elif w["open"] and not w["stop"].is_set():     # the rest of it
+                    text = w["text"] + " " + text
+                    words = _words(text)
+                    me.update(words=words, text=text)
                     w["stop"].set()
             self._waiting.append(me)
-        if is_cut_off(text) and not me["stop"].wait(DANGLING_WAIT_S) and len(words) <= CUT_OFF_MAX_WORDS:
-            with self._wait_lock:
-                self._waiting.remove(me)
-            return self._ignore(text, "cut off")
+        if holding:
+            stopped = me["stop"].wait(DANGLING_WAIT_S)
+            me["open"] = False
+            drop = is_cut_off(text) and len(words) <= CUT_OFF_MAX_WORDS or (voice and is_scrap(words))
+            if not stopped and drop:
+                with self._wait_lock:
+                    self._waiting.remove(me)
+                return self._ignore(text, "cut off")
         with self._lock:
             with self._wait_lock:
                 self._waiting.remove(me)
@@ -365,6 +411,7 @@ class Agent:
                 self.tools.utterance, self.tools.turn_frames = None, None
             self.ctx.memory.db.log_event("turn", "inferred", {
                 "ms": r["ms"], "queue_ms": queue_ms, "model_ms": self._llm_ms, "source": source,
+                "frame_sent": self._frame_sent,
                 "prompt_tokens": self._last_usage.get("prompt_tokens"),
                 "completion_tokens": self._last_usage.get("completion_tokens"),
                 "fast": bool(r.get("fast")), "tools": [t["tool"] for t in r["trace"]]})
@@ -397,7 +444,7 @@ class Agent:
                         # compound turn finished: speak the tools' own (accurate) summaries
                         reply = " ".join(dict.fromkeys(t["summary"] for t in trace))
                         break
-                    if not trace and ACTION_CLAIM.match(reply):
+                    if not trace and (ACTION_CLAIM.match(reply) or SAVE_CLAIM.search(reply)):
                         self.ctx.memory.db.log_event("guard", "inferred",
                                                      {"claim": reply[:200], "retried": not nudged})
                         if not nudged:
