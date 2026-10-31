@@ -31,6 +31,23 @@ INTENT = {
     "watch_bench": re.compile(r"\b(watch|monitor|keep an eye|warn|alert|let me know|tell me if|shout if)\b", re.I),
     "log_measurement": re.compile(r"\d"),
 }
+# "this is my X" names the object in hand: taught at once, while it is still being held.
+_TEACH = re.compile(r"^\W*(?:(?:so|okay|ok|alright|yeah|yes|and|hey|right|now|um|uh)\W+)*"
+                    r"(?:this|that|these|those)(?:'s|\s+is|\s+are)\s+(?:my|the|our|a|an)\s+"
+                    r"(?P<name>[\w'\- ]{2,40}?)\W*$", re.I)
+_NOT_A_NAME = re.compile(r"\b(?:which|that|where|when|because|for|on|in|at|and|with|behind|i|it|to|"
+                         r"of|problem|mistake|issue|question|joke|session|experiment|test|bit|"
+                         r"thing|way|point|reason|idea|one)\b", re.I)
+
+
+def teach_name(text):
+    """The object's name in a plain "this is my X" sentence, else None."""
+    m = _TEACH.match(text)
+    if not m or len(m["name"].split()) > 4 or _NOT_A_NAME.search(m["name"]):
+        return None
+    return m["name"]
+
+
 # Corrections and pushback need thinking: "no I was asking about ...", "that's not ..."
 PUSHBACK = re.compile(r"^\W*(?:(?:uh|um|see|so|well)\W+)*(?:no|nope|not|wrong)\b|\b(?:that's|it's|that is|it is) not\b", re.I)
 # Fast actions that change memory: Spark re-checks them after the reply.
@@ -218,6 +235,10 @@ class System1:
         if is_compound(text.strip()):
             self.last_reason = "compound"
             return None
+        name = teach_name(text)
+        if name:
+            self.last_decision = {"tool": "teach_object", "conf": 1.0, "multi": 0.0}
+            return FastAction("teach_object", {"name": name}, 1.0, dict(self.last_decision))
         a = self._predict(text, QUESTIONS)
         tool, conf, multi = a["tool"]["choice"], a["tool"]["answer_confidence"], a["multi"]["noul"]
         self.last_decision = {"tool": tool, "conf": round(conf, 3), "multi": round(multi, 3)}

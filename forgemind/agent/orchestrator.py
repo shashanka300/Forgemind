@@ -7,7 +7,9 @@ import json
 import re
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 from forgemind.agent import prompts
 from forgemind.agent.tools import NEEDS_PHRASING, ToolBox, schemas
@@ -61,6 +63,44 @@ def is_fragment(text):
     return not rest or (len(rest) == 1 and len(words) <= 2 and rest[0] not in _ONE_WORD_OK)
 
 
+# A sentence cut off by the transcriber ("this is", "so just have a"): the rest usually
+# arrives as a new turn repeating it. Wait briefly; the longer turn replaces it.
+_DANGLING = re.compile(r"\b(?:a|an|the|and|or|but|is|are|my|to|of|in|on|at|for|with|this|that|"
+                       r"so|i|i'm|your|which|let's|because)$", re.I)
+DANGLING_WAIT_S = 1.5
+# The assistant's own voice picked up by a mic (phone test: ends of replies came back as
+# "the user said ..."). The window covers long replies and queued speech.
+ECHO_WINDOW_S = 30.0
+# Four words: real commands quote replies ("First: wire the divider" -> "log wire the divider").
+ECHO_MIN_WORDS = 4
+ACK_PHRASES = ("Let me check.", "One moment.")     # spoken by the phone (phone.html ackFor)
+# The same sentence from a second mic within this long is one turn.
+DUPLICATE_WINDOW_S = 4.0
+
+
+def _words(text):
+    return [w.strip(".,!?;:\"()-").lower() for w in text.split()]
+
+
+def strip_echo(text, spoken):
+    """`text` without runs of words from what the assistant just said."""
+    tokens = text.split()
+    for said in spoken:
+        while tokens:
+            have = _words(" ".join(tokens))
+            m = SequenceMatcher(None, have, said, autojunk=False).find_longest_match(
+                0, len(have), 0, len(said))
+            if m.size < ECHO_MIN_WORDS:
+                break
+            del tokens[m.a:m.a + m.size]
+    return " ".join(tokens)
+
+
+def is_cut_off(text):
+    t = text.strip()
+    return not t.endswith((".", "?", "!")) and bool(_DANGLING.search(t))
+
+
 HISTORY_TURNS = 8
 
 
@@ -80,7 +120,12 @@ class Agent:
         self.ctx = ctx
         self.tools = ToolBox(ctx)
         self.schemas = schemas()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._spoken = deque(maxlen=12)         # (ts, words) of recent replies, for the echo check
+        self._waiting = []                      # turns not started yet
+        self._wait_lock = threading.Lock()
+        self._last_turn = {}                    # source -> (ts, words)
+        self._llm_ms = 0
         self.system1 = System1(ctx.settings, ctx.memory) if ctx.settings.system1 else None
         self.last_verify_thread = None
         self._pf_lock, self._pf_next, self._pf_busy = threading.Lock(), None, False
@@ -92,6 +137,8 @@ class Agent:
         return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
 
     def _remember(self, role, content):
+        if role == "assistant":
+            self._spoken.append((time.time(), _words(content)))
         self.ctx.memory.db.execute("INSERT INTO conversation(ts,role,content) VALUES(?,?,?)",
                                    (time.time(), role, content))
 
@@ -207,20 +254,63 @@ class Agent:
             self.ctx.hub.say(msg)
             self._remember("assistant", msg)
 
-    def handle(self, text):
+    def _ignore(self, text, why):
+        self.ctx.memory.db.log_event("ignored", "inferred", {"text": text, "why": why})
+        return {"reply": "", "trace": [], "ignored": True, "ms": 0}
+
+    def _is_duplicate(self, words, source, now):
+        """The same sentence just arrived from another mic."""
+        dup = any(s != source and now - ts <= DUPLICATE_WINDOW_S
+                  and SequenceMatcher(None, words, w, autojunk=False).ratio() >= 0.8
+                  for s, (ts, w) in self._last_turn.items())
+        self._last_turn[source] = (now, words)
+        return dup
+
+    def handle(self, text, source="default"):
         """One user turn; each turn's timing and path go in the log (event `turn`)."""
         t0 = time.perf_counter()
-        if is_fragment(text):
-            self.ctx.memory.db.log_event("ignored", "inferred", {"text": text})
-            return {"reply": "", "trace": [], "ignored": True, "ms": 0}
-        self.tools.utterance = text
-        try:
-            r = self._handle(text, t0)
-        finally:
-            self.tools.utterance = None
-        self.ctx.memory.db.log_event("turn", "inferred", {
-            "ms": r["ms"], "fast": bool(r.get("fast")), "tools": [t["tool"] for t in r["trace"]]})
-        return r
+        now = time.time()
+        said = [w for ts, w in self._spoken if now - ts <= ECHO_WINDOW_S]
+        heard = "" if _words(text) in [_words(a) for a in ACK_PHRASES] else strip_echo(text, said)
+        if heard != text:
+            self.ctx.memory.db.log_event("ignored", "inferred", {"text": text, "why": "echo",
+                                                                 "kept": heard})
+        if not heard or is_fragment(heard):
+            return self._ignore(text, "fragment")
+        text = heard
+        words = _words(text)
+        if self._is_duplicate(words, source, now):
+            return self._ignore(text, "other mic")
+        # What the phone sees now, not when the agent gets to this turn: by then the object
+        # being taught may have been put down.
+        frames = self.ctx.perception.recent_frames(4.0)
+        me = {"words": words, "stop": threading.Event()}
+        with self._wait_lock:
+            for w in self._waiting:             # this sentence continues one still waiting
+                if words[:len(w["words"])] == w["words"]:
+                    w["stop"].set()
+            self._waiting.append(me)
+        if is_cut_off(text) and me["stop"].wait(DANGLING_WAIT_S) is False:
+            with self._wait_lock:
+                self._waiting.remove(me)
+            return self._ignore(text, "cut off")
+        with self._lock:
+            with self._wait_lock:
+                self._waiting.remove(me)
+            if me["stop"].is_set():
+                self.ctx.memory.db.log_event("ignored", "inferred", {"text": text, "why": "continued"})
+                return {"reply": "", "trace": [], "ignored": True, "ms": 0}
+            queue_ms = round((time.perf_counter() - t0) * 1000)
+            self.tools.utterance, self.tools.turn_frames = text, frames
+            self._llm_ms = 0
+            try:
+                r = self._handle(text, t0)
+            finally:
+                self.tools.utterance, self.tools.turn_frames = None, None
+            self.ctx.memory.db.log_event("turn", "inferred", {
+                "ms": r["ms"], "queue_ms": queue_ms, "model_ms": self._llm_ms, "source": source,
+                "fast": bool(r.get("fast")), "tools": [t["tool"] for t in r["trace"]]})
+            return r
 
     def _handle(self, text, t0):
         with self._lock:
@@ -238,7 +328,9 @@ class Agent:
             trace, reply = [], None
             nudged = False
             for _ in range(MAX_STEPS):
+                t_model = time.perf_counter()
                 res = llm.chat(messages, tools=self.schemas, model=llm.model_for("agent"))
+                self._llm_ms += round((time.perf_counter() - t_model) * 1000)
                 if not res.tool_calls:
                     reply = (res.content or "").strip()
                     if trace and all(t["summary"] and not t["error"] and t["tool"] not in NEEDS_PHRASING

@@ -120,3 +120,15 @@ def test_stale_share_on_our_name_is_released(monkeypatch):
     monkeypatch.setattr(tunnel.subprocess, "run", run)
     tunnel._release_name("zrok2", "my-name")
     assert calls[1:] == [["zrok2", "delete", "share", "mefb9uaf9zyf"]]    # only ours
+
+
+def test_bench_detection_stays_at_one_a_second(rt):
+    from conftest import scene
+    calls = []
+    real = rt.perception.seg.segment
+    rt.perception.seg.segment = lambda *a: calls.append(1) or real(*a)
+    for i in range(9):                               # 3 fps, the scene changing every frame
+        x = .1 + .08 * i
+        rt.perception.process("static", scene([("multimeter", x, .4, x + .1, .6)]), ts=1000 + i / 3)
+    assert len(calls) == 3
+    assert rt.perception.newest["static"] is not None   # the preview still got every frame

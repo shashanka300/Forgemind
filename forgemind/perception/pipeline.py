@@ -26,6 +26,9 @@ from forgemind.perception.zones import ZoneTracker
 KEYFRAME_PX = 1024
 MOBILE_KEYFRAME_EVERY_S = 2.0
 STATIC_FORCE_EVERY_S = 15.0
+# The bench camera sends a few frames a second for the live preview; detection stays at
+# about one a second however much the scene is moving.
+STATIC_MIN_EVERY_S = 1.0
 # A frame "changed" when this fraction of 96x72 pixels moved by > PIXEL_DELTA
 # grey levels: a small object moving trips it, webcam noise doesn't.
 CHANGE_FRACTION = 0.004
@@ -130,6 +133,8 @@ class Perception:
         self.hub, self.safety = hub, safety
         self.phone_zone = ZoneTracker(settings.zones)
         self.gate = ChangeGate()
+        self.newest = {}
+        self.bench_dirty = False
         self.latest = {}             # camera -> {"ts", "image", "detections", "zone"}
         self.recent = collections.deque(maxlen=RECENT_FRAMES)   # phone frames, newest last
         self.last_processed = {}     # camera -> ts
@@ -195,6 +200,7 @@ class Perception:
         image = data if isinstance(data, Image.Image) else self.decode(data)
         if camera == "static":
             image = bench.apply(image, self.s.bench_roi, self.s.bench_masks)
+        self.newest[camera] = image          # the live preview shows this, processed or not
         with self._lock:
             return self._process(camera, image, ts, force)
 
@@ -205,12 +211,15 @@ class Perception:
             zone, zone_changed = self.phone_zone.update(image, ts)
         else:
             zone = self.s.static_zone
-            changed = self.gate.changed(image)
-            stale = ts - self.last_processed.get(camera, 0) >= STATIC_FORCE_EVERY_S
+            self.bench_dirty = self.gate.changed(image) or self.bench_dirty
+            changed = self.bench_dirty
+            since = ts - self.last_processed.get(camera, 0)
+            too_soon = 0 <= since < STATIC_MIN_EVERY_S
+            stale = since >= STATIC_FORCE_EVERY_S
             # a new object waiting for its second sighting: look again even if
             # nothing changed, or a still scene never confirms it
             confirming = bool(self.pending.get(camera))
-            if not (changed or stale or force or confirming):
+            if not force and (too_soon or not (changed or stale or confirming)):
                 prev = self.latest.get(camera, {})
                 for d in prev.get("detections", []):   # unchanged scene: still there
                     if d.get("kind") in ("object", "hazard"):
@@ -222,6 +231,8 @@ class Perception:
                 return {"camera": camera, "zone": zone, "skipped": True, "events": [],
                         "detections": prev.get("detections", []), "keyframe": None}
         self.last_processed[camera] = ts
+        if camera == "static":
+            self.bench_dirty = False
         dets = one_label_per_object(self.seg.segment(image, self.s.concepts))
         keyframe = None if self.private else self._save_keyframe(camera, image, ts)
 

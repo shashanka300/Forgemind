@@ -179,7 +179,7 @@ async function loop() {
       try {
         const blob = await snapshot(SEND_PX, 0.72);
         const out = await api(`/api/frame?camera=${ROLE}`, {method: "POST", headers: {"Content-Type": "image/jpeg"}, body: blob});
-        if (!out.skipped) lastDets = out.detections || [];
+        if (!out.skipped) { lastDets = out.detections || []; detsAt = performance.now(); }
         if (out.zone) $("zone").textContent = "📍 " + out.zone;
         $("hud").textContent = out.paused ? "paused" : `${ROLE} · ${lastDets.length} seen · ${out.ms ?? 0} ms${out.skipped ? " · no change" : ""}`;
         (out.events || []).forEach(e => { if (e.type === "look_done") toast("Thanks, got it.", "look"); });
@@ -205,11 +205,13 @@ function draw() {
   ctx.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
   const r = videoRect();
   const hl = highlight && performance.now() < highlight.until ? highlight : null;
-  for (const d of lastDets) {
+  // Boxes are ~0.5 s old when they arrive: glide to each update and fade if none comes.
+  const age = performance.now() - detsAt, fade = Math.max(0.3, Math.min(1, 1 - (age - 1500) / 1500));
+  for (const d of smoothed()) {
     const [x0, y0, x1, y1] = d.box;
     const isHl = hl && d.entity_id === hl.id;
     const color = isHl ? "#5fd38a" : d.kind === "hazard" ? "#ff5a4e" : d.kind === "presence" ? "rgba(127,178,255,.6)" : "#f2a33a";
-    if (hl && !isHl && d.kind === "object") ctx.globalAlpha = 0.35;
+    ctx.globalAlpha = hl && !isHl && d.kind === "object" ? 0.35 : isHl ? 1 : fade;
     ctx.strokeStyle = color; ctx.lineWidth = isHl ? 4 + 2 * Math.sin(performance.now() / 150) : 2;
     const bx = r.x + x0 * r.w, by = r.y + y0 * r.h, bw = (x1 - x0) * r.w, bh = (y1 - y0) * r.h;
     ctx.strokeRect(bx, by, bw, bh);
@@ -219,8 +221,23 @@ function draw() {
     ctx.fillStyle = "#121110"; ctx.fillText(label, bx + 5, Math.max(r.y, by - 18) + 13);
     ctx.globalAlpha = 1;
   }
-  if (hl) requestAnimationFrame(draw);
 }
+let detsAt = 0;
+const shownBoxes = new Map();
+function smoothed() {
+  const seen = new Set();
+  const out = lastDets.map((d, i) => {
+    const k = d.entity_id || d.concept + ":" + i;
+    seen.add(k);
+    const s = shownBoxes.get(k);
+    if (!s) shownBoxes.set(k, [...d.box]);
+    else d.box.forEach((v, j) => { s[j] += (v - s[j]) * 0.3; });
+    return {...d, box: shownBoxes.get(k)};
+  });
+  for (const k of shownBoxes.keys()) if (!seen.has(k)) shownBoxes.delete(k);
+  return out;
+}
+(function animate() { if (running) draw(); requestAnimationFrame(animate); })();
 addEventListener("resize", draw);
 
 // ---------- cards (alerts, look/capture requests, last-seen) ----------
@@ -266,7 +283,15 @@ function setVoice(v) {
   const was = VOICE; VOICE = v || null;
   if (VOICE && VOICE !== was) ACKS.forEach(a => voiceUrl(a).catch(() => {}));   // instant acks
 }
+let wasSpeaking = false, micQuietUntil = 0;
 function isSpeaking() { return voicePlaying || ("speechSynthesis" in window && speechSynthesis.speaking); }
+// The mic stays quiet a moment after speech ends: Bluetooth output lags the "ended" event.
+function micMuted() {
+  const now = performance.now(), on = isSpeaking();
+  if (on || wasSpeaking) micQuietUntil = now + 1200;
+  wasSpeaking = on;
+  return on || now < micQuietUntil;
+}
 function stopSpeaking() {
   voiceGen++; voiceQueue = []; voicePlaying = false; player.pause();
   if ("speechSynthesis" in window) speechSynthesis.cancel();
@@ -308,6 +333,10 @@ function ackFor(text) {
   return null;
 }
 
+// Spoken messages pushed to every open page: only the device in use says them.
+let micSeenAt = -1e9, tappedAt = -1e9;
+document.addEventListener("pointerdown", () => { tappedAt = performance.now(); });
+const inUseHere = () => ROLE === "mobile" && performance.now() - Math.max(micSeenAt, tappedAt) < 300000;
 const looks = {}, seeking = {};
 function onPush(m) {
   if (m.type === "alert") {
@@ -317,7 +346,7 @@ function onPush(m) {
   } else if (m.type === "look_request" && ROLE === "mobile") {
     looks[m.id] = card("look", "Point the phone at: " + m.target, m.reason || "", {
       onClose: () => post(`/api/looks/${m.id}/dismiss`, {})});
-    speak("Could you point the phone at the " + m.target + "?");
+    if (inUseHere()) speak("Could you point the phone at the " + m.target + "?");
   } else if (m.type === "look_done") {
     looks[m.id] && looks[m.id].remove();
   } else if (m.type === "capture_request" && ROLE === "mobile") {
@@ -344,7 +373,7 @@ function onPush(m) {
   } else if (m.type === "budget") {
     card("alert", "API budget", m.text);
   } else if (m.type === "say") {
-    speak(m.text);
+    if (inUseHere()) speak(m.text);
   }
 }
 
@@ -507,7 +536,7 @@ function handsFree(on) {
     };
     sock.onclose = () => { if (!state.stop) setTimeout(() => state.stop || open(), 1000); };
     if (!state.stream) {
-      state.stream = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true}});
+      state.stream = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: false, noiseSuppression: true}});   // call mode moves the audio route; the mic is muted while speaking anyway
       state.ctx = new AudioContext({sampleRate: 16000});
       await state.ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([PCM_WORKLET], {type: "text/javascript"})));
       const node = new AudioWorkletNode(state.ctx, "pcm");
@@ -515,7 +544,8 @@ function handsFree(on) {
         const s = state.sock;
         if (!s || s.readyState !== 1) return;
         const f = e.data, out = new Int16Array(f.length);
-        if (!isSpeaking())                           // silence while the phone talks
+        micSeenAt = performance.now();
+        if (!micMuted())                             // silence while the phone talks
           for (let i = 0; i < f.length; i++) out[i] = Math.max(-1, Math.min(1, f[i])) * 0x7fff;
         s.send(out.buffer);
       };

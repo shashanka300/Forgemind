@@ -53,10 +53,10 @@ async function tick() {
   if (r && r.ok) { const u = URL.createObjectURL(await r.blob()), old = f.src; f.src = u; if (old) URL.revokeObjectURL(old); }
   const st = await fetch("/api/state", {credentials: "same-origin"}).then(r => r.json()).catch(() => null);
   const b = st && st.scenes && st.scenes.static;
-  if (b && b.available) s.textContent = "Last processed " + Math.round(b.age_s) + " s ago (updates when the bench changes): " + (b.objects.join(", ") || "nothing recognised");
+  if (b && b.available) s.textContent = "Live. Boxes update when the bench changes (last " + Math.round(b.age_s) + " s ago): " + (b.objects.join(", ") || "nothing recognised");
   else if (r && !r.ok) s.textContent = "No frames: the bench camera isn't streaming.";
 }
-tick(); setInterval(tick, 1000);
+tick(); setInterval(tick, 400);
 </script>"""
 
 
@@ -155,9 +155,11 @@ def create_app(rt):
         from fastapi.responses import Response
         from PIL import ImageDraw
         item = rt.perception.latest.get(camera) if camera in ("static", "mobile") else None
-        if not item or item.get("image") is None:
+        newest = rt.perception.newest.get(camera)
+        if not item and not newest:
             raise HTTPException(404, "no frame yet")
-        img = item["image"].convert("RGB")
+        item = item or {}
+        img = (newest or item["image"]).convert("RGB")
         img.thumbnail((1280, 1280))
         W, H = img.size
         draw = ImageDraw.Draw(img)
@@ -229,7 +231,10 @@ def create_app(rt):
         if not sp or sp.loading or sp.error:
             raise HTTPException(503, "voice not available")
         try:
+            t0 = time.perf_counter()
             audio = await run_in_threadpool(sp.speak, body.text[:1500])
+            rt.memory.db.log_event("voice", "inferred", {"ms": round((time.perf_counter() - t0) * 1000),
+                                                         "chars": len(body.text)})
         except ValueError as e:
             raise HTTPException(400, str(e))
         return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
@@ -386,8 +391,9 @@ def create_app(rt):
         hooks = None
         if hands_free and socket.query_params.get("server_turns") == "1":
             from forgemind.server.asr import TurnHooks
+            source = socket.query_params.get("source") or "phone"
             hooks = TurnHooks(partial=rt.agent.prefetch,
-                              turn=lambda text: run_in_threadpool(rt.agent.handle, text))
+                              turn=lambda text: run_in_threadpool(rt.agent.handle, text, source))
         try:
             # without hooks the phone sends each turn to /api/chat itself
             await rt.asr.run(socket, hands_free, hooks)

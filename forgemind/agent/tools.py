@@ -187,6 +187,7 @@ class ToolBox:
     # What the user said this turn (set by the agent); None for direct calls like the
     # Teach button, which name the object explicitly.
     utterance = None
+    turn_frames = None      # phone frames from the moment this turn arrived
 
     def run(self, name, arguments):
         if name not in SPECS:
@@ -369,7 +370,7 @@ class ToolBox:
     def teach_object(self, a: TeachObject):
         """Name the object in front of the phone, from up to TEACH_VIEWS recent frames."""
         p = self.ctx.perception
-        frames = p.recent_frames(TEACH_WINDOW_S)
+        frames = self.turn_frames or p.recent_frames(TEACH_WINDOW_S)
         if not frames:
             if p.current_image("mobile") is None:
                 raise ToolError("Point the phone's camera at the object first.")

@@ -214,3 +214,80 @@ def test_prefetched_decision_is_reused_for_the_final_transcript(rt):
     n = len(calls)
     out = agent.handle("Where is my hex key?")
     assert out["fast"] and len(calls) == n and agent.system1.prefetched
+
+
+def test_own_voice_is_not_taken_for_the_user(rt):
+    agent = fast_agent(rt, {})
+    agent._remember("assistant", "I can't pick out the plasma ball. Hold it closer, in the middle "
+                                 "of the view, and say its name again.")
+    assert agent.handle("in the middle of the view and say its name again")["ignored"]
+    assert agent.ctx.llm.calls == 0
+
+
+def test_echo_is_cut_out_of_a_real_sentence():
+    from forgemind.agent.orchestrator import _words, strip_echo
+    said = [_words("Got it - that's your watch two views")]
+    assert strip_echo("and here I have a glass that's your watch two views", said) == "and here I have a glass"
+    assert strip_echo("where is my watch", said) == "where is my watch"
+
+
+def test_cut_off_sentence_waits_and_is_dropped(rt, monkeypatch):
+    import forgemind.agent.orchestrator as o
+    monkeypatch.setattr(o, "DANGLING_WAIT_S", 0.05)
+    agent = fast_agent(rt, {})
+    assert agent.handle("this is")["ignored"] and agent.ctx.llm.calls == 0
+
+
+def test_longer_sentence_replaces_the_one_waiting(rt, monkeypatch):
+    import threading
+
+    import forgemind.agent.orchestrator as o
+    monkeypatch.setattr(o, "DANGLING_WAIT_S", 2.0)
+    agent = fast_agent(rt, {"so just have a look at the hex key": ("chat", 0.5, 0.0)})
+    first = {}
+    t = threading.Thread(target=lambda: first.update(agent.handle("so just have a")))
+    t.start()
+    time.sleep(0.2)
+    second = agent.handle("so just have a look at the hex key")
+    t.join(3)
+    assert first["ignored"] and not second.get("ignored") and agent.ctx.llm.calls == 1
+
+
+def test_same_sentence_from_the_other_mic_is_one_turn(rt):
+    agent = fast_agent(rt, {})
+    agent.system1 = None
+    assert not agent.handle("start a session called voltage test", source="phone").get("ignored")
+    assert agent.handle("Start a session called voltage test.", source="desk")["ignored"]
+    assert agent.ctx.llm.calls == 1
+
+
+@pytest.mark.parametrize("text,name", [
+    ("this is my smaller bookshelf.", "smaller bookshelf"), ("so these are my clippers", "clippers"),
+    ("alright, this is the secondary monitor.", "secondary monitor"), ("This is Goku.", None),
+    ("this is a problem", None), ("this is the switch which I use", None),
+    ("this is my watch this is the power socket", None),
+])
+def test_teach_name(text, name):
+    from forgemind.agent.system1 import teach_name
+    assert teach_name(text) == name
+
+
+def test_this_is_my_x_teaches_without_spark(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    agent = fast_agent(rt, {})
+    out = agent.handle("this is my small key.")
+    assert out["fast"] and agent.ctx.llm.calls == 0 and rt.memory.registry.find("small key")
+
+
+def test_teach_uses_the_frames_from_when_the_user_spoke(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    frames = rt.perception.recent_frames(4.0)
+    rt.perception.recent.clear()                     # the object has gone by the time it runs
+    rt.agent.tools.turn_frames = frames
+    assert "error" not in rt.agent.tools.run("teach_object", {"name": "small key"})
+
+
+def test_quoting_a_reply_is_not_an_echo():
+    from forgemind.agent.orchestrator import _words, strip_echo
+    said = [_words("Added 3 planned steps. First: wire the divider.")]
+    assert strip_echo("Log wire the divider", said) == "Log wire the divider"

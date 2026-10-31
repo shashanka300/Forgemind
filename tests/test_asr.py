@@ -126,7 +126,7 @@ def test_hands_free_forwards_each_turn(rt):
 def test_server_turns_answer_on_the_server_and_prefetch_partials(rt):
     seen = []
     rt.agent.prefetch = seen.append
-    rt.agent.handle = lambda text: {"reply": f"answer to {text}", "trace": []}
+    rt.agent.handle = lambda text, source=None: {"reply": f"answer to {text}", "trace": []}
     up = FakeEndpointing()
     with _client(rt, up) as c:
         with c.websocket_connect("/ws/asr?t=secret-token&mode=hands_free&server_turns=1") as ws:
