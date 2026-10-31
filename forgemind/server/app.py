@@ -39,6 +39,25 @@ class ChatIn(BaseModel):
     text: str
 
 
+BENCH_PAGE = """<!doctype html><meta charset="utf-8"><title>ForgeMind bench camera</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{margin:0;background:#111;color:#ddd;font:14px system-ui;text-align:center}
+img{max-width:100%;max-height:92vh}#s{padding:6px}</style>
+<div id="s">waiting for the bench camera...</div><img id="f" alt="">
+<script>
+const f = document.getElementById("f"), s = document.getElementById("s");
+async function tick() {
+  const r = await fetch("/api/cameras/static/latest.jpg", {credentials: "same-origin"}).catch(() => null);
+  if (r && r.ok) { const u = URL.createObjectURL(await r.blob()), old = f.src; f.src = u; if (old) URL.revokeObjectURL(old); }
+  const st = await fetch("/api/state", {credentials: "same-origin"}).then(r => r.json()).catch(() => null);
+  const b = st && st.scenes && st.scenes.static;
+  if (b && b.available) s.textContent = "Last processed " + Math.round(b.age_s) + " s ago (updates when the bench changes): " + (b.objects.join(", ") || "nothing recognised");
+  else if (r && !r.ok) s.textContent = "No frames: the bench camera isn't streaming.";
+}
+tick(); setInterval(tick, 1000);
+</script>"""
+
+
 class SayIn(BaseModel):
     text: str
 
@@ -106,6 +125,35 @@ def create_app(rt):
     @app.get("/")
     def index():
         return FileResponse(STATIC / "phone.html", headers={"Cache-Control": "no-store"})
+
+    @app.get("/bench")
+    def bench_page():
+        """Live preview of the bench camera, with what it detects."""
+        return HTMLResponse(BENCH_PAGE, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/cameras/{camera}/latest.jpg")
+    def latest_frame(camera: str):
+        """The newest processed frame of a camera, with its detections drawn."""
+        from io import BytesIO
+
+        from fastapi.responses import Response
+        from PIL import ImageDraw
+        item = rt.perception.latest.get(camera) if camera in ("static", "mobile") else None
+        if not item or item.get("image") is None:
+            raise HTTPException(404, "no frame yet")
+        img = item["image"].convert("RGB")
+        img.thumbnail((1280, 1280))
+        W, H = img.size
+        draw = ImageDraw.Draw(img)
+        for d in item.get("detections") or []:
+            x0, y0, x1, y1 = d["box"]
+            color = (240, 200, 60) if d.get("kind") == "presence" else (95, 211, 138)
+            draw.rectangle((x0 * W, y0 * H, x1 * W, y1 * H), outline=color, width=2)
+            draw.text((x0 * W + 4, y0 * H + 3), d.get("label") or d["concept"], fill=color)
+        buf = BytesIO()
+        img.save(buf, "JPEG", quality=80)
+        return Response(buf.getvalue(), media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
 
     def _safe(root, name):
         if not SAFE_NAME.match(name):

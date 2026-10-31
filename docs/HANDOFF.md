@@ -67,7 +67,7 @@ Not fixed: a sentence split in two by the transcriber; remarks to oneself still 
 reply; duplicates of untaught phone objects (about 50 objects with no zone tags up).
 Memory backups (git-ignored, deletable): `forgemind-data.bak-phonetest-20261031` (holds 1,429
 camera stills from the test, including the user's home), `forgemind-data.bak-evalworld-20261030`.
-Bench preview: `forgemind static-cam --device 0 --token <t> --show`.
+Bench preview: open `/bench` on the server (the OpenCV install is headless, so no windows; `--show` prints the address).
 
 ## Where to pick up (Oct 30, end of session)
 

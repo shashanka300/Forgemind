@@ -105,6 +105,8 @@ def run(server, token, device=0, fps=1.0, show=False, loop=False, send_px=FRAME_
         first = cam.latest()
     size = f"{first.shape[1]}x{first.shape[0]}" if first is not None else "?"
     print(f"static {kind} {device} ({size}, sent at <= {send_px} px) -> {url} at {fps} fps (Ctrl+C to stop)")
+    if show:          # opencv-python-headless has no windows: the preview is a web page
+        print(f"preview: {server.rstrip('/')}/bench" + (f"?t={token}" if token else ""))
     sent = 0
     try:
         while not cam.ended:
@@ -129,11 +131,6 @@ def run(server, token, device=0, fps=1.0, show=False, loop=False, send_px=FRAME_
                 print(f"server said {e.code}: {e.read()[:200]!r}")
             except urllib.error.URLError as e:
                 print(f"server unreachable: {e.reason}")
-            if show:
-                cv2.namedWindow("ForgeMind static camera", cv2.WINDOW_NORMAL)  # resizable: frames are 2560 px
-                cv2.imshow("ForgeMind static camera", frame)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
             time.sleep(max(0.0, period - (time.time() - t)))
     except KeyboardInterrupt:
         pass

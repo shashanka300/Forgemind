@@ -253,7 +253,7 @@ def main(argv=None):
     p.add_argument("--token", default="", help="the t= value from the printed link")
     p.add_argument("--device", default="0", help="camera index or stream URL")
     p.add_argument("--fps", type=float, default=1.0)
-    p.add_argument("--show", action="store_true", help="preview window (q quits)")
+    p.add_argument("--show", action="store_true", help="print the address of the browser preview (/bench)")
     p.add_argument("--loop", action="store_true", help="loop a video file (rehearsals)")
     p.add_argument("--send-px", type=int, default=2560, help="longest side sent to the server")
     p.set_defaults(fn=cmd_static_cam)

@@ -72,3 +72,19 @@ def test_websocket_rejects_without_token(rt):
         with pytest.raises(WebSocketDisconnect):
             with c.websocket_connect("/ws") as ws:
                 ws.receive_json()
+
+
+def test_bench_preview_page_and_frame(rt):
+    from fastapi.testclient import TestClient
+
+    from conftest import scene
+    from forgemind.server.app import create_app
+    with TestClient(create_app(rt), base_url="https://testserver") as c:
+        assert c.get("/api/cameras/static/latest.jpg").status_code == 401     # locked
+        c.get("/?t=secret-token")
+        assert c.get("/api/cameras/static/latest.jpg").status_code == 404     # no frame yet
+        rt.perception.process("static", scene([("multimeter", .4, .4, .6, .6)]))
+        r = c.get("/api/cameras/static/latest.jpg")
+        assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+        assert c.get("/api/cameras/kitchen/latest.jpg").status_code == 404
+        assert "latest.jpg" in c.get("/bench").text
