@@ -46,7 +46,7 @@ Kokoro voice "am_michael"; all on in `.env`, 110 tests pass). Waiting on the use
 
 ## First real phone test (Oct 31)
 
-Run over zrok (`zrok2` 2.0.9 in `C:/Users/shash/bin`, launch config `forgemind-live`, new token
+Run over zrok (`zrok2` 2.0.9 in `C:/Users/shash/bin`, launch config `forgemind-live`; now a fixed address, `https://shashanka-forgemind.shares.zrok.io/` (`FM_ZROK_NAME`, stale share released at start) and a fixed `FM_TOKEN` in `.env`, entered on the login page; the old per-start token
 each start). Speech, transcription and teaching worked; what failed, and the fixes (all in):
 - Small talk re-taught whatever was in view (39 teaches), so mouse crops were stored under
   "baby's biter" and the mouse then matched as the biter. Now: teach needs the name in that
