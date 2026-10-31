@@ -65,9 +65,10 @@ def is_fragment(text):
 
 # A sentence cut off by the transcriber ("this is", "so just have a"): the rest usually
 # arrives as a new turn repeating it. Wait briefly; the longer turn replaces it.
-_DANGLING = re.compile(r"\b(?:a|an|the|and|or|but|is|are|my|to|of|in|on|at|for|with|this|that|"
-                       r"so|i|i'm|your|which|let's|because)$", re.I)
+# (Not "that", "this", "on": "don't log that" and "turn it on" are complete.)
+_DANGLING = re.compile(r"\b(?:a|an|the|and|or|but|is|are|my|to|of|for|i|i'm|your|which|let's|because)$", re.I)
 DANGLING_WAIT_S = 1.5
+CUT_OFF_MAX_WORDS = 4       # longer ones may still mean something: Spark gets them after the wait
 # The assistant's own voice picked up by a mic (phone test: ends of replies came back as
 # "the user said ..."). The window covers long replies and queued speech.
 ECHO_WINDOW_S = 30.0
@@ -90,7 +91,9 @@ def strip_echo(text, spoken):
             have = _words(" ".join(tokens))
             m = SequenceMatcher(None, have, said, autojunk=False).find_longest_match(
                 0, len(have), 0, len(said))
-            if m.size < ECHO_MIN_WORDS:
+            # Only at the start or end of what was heard: a run in the middle is the user's
+            # own sentence ("what's on the bench right now?" after "... on the bench (right side)").
+            if m.size < ECHO_MIN_WORDS or (m.a > 0 and m.a + m.size < len(have)):
                 break
             del tokens[m.a:m.a + m.size]
     return " ".join(tokens)
@@ -290,7 +293,7 @@ class Agent:
                 if words[:len(w["words"])] == w["words"]:
                     w["stop"].set()
             self._waiting.append(me)
-        if is_cut_off(text) and me["stop"].wait(DANGLING_WAIT_S) is False:
+        if is_cut_off(text) and not me["stop"].wait(DANGLING_WAIT_S) and len(words) <= CUT_OFF_MAX_WORDS:
             with self._wait_lock:
                 self._waiting.remove(me)
             return self._ignore(text, "cut off")

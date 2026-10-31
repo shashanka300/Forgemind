@@ -291,3 +291,30 @@ def test_quoting_a_reply_is_not_an_echo():
     from forgemind.agent.orchestrator import _words, strip_echo
     said = [_words("Added 3 planned steps. First: wire the divider.")]
     assert strip_echo("Log wire the divider", said) == "Log wire the divider"
+
+
+@pytest.mark.parametrize("text,cut", [
+    ("just checking the probe, don't log that", False), ("turn it on", False), ("look at this", False),
+    ("this is", True), ("so just have a", True), ("Lots of books in your", True),
+    ("this is my watch.", False),
+])
+def test_is_cut_off(text, cut):
+    from forgemind.agent.orchestrator import is_cut_off
+    assert is_cut_off(text) is cut
+
+
+def test_long_unfinished_sentence_still_reaches_spark(rt, monkeypatch):
+    import forgemind.agent.orchestrator as o
+    monkeypatch.setattr(o, "DANGLING_WAIT_S", 0.05)
+    agent = fast_agent(rt, {"can you start a new session for the": ("chat", 0.5, 0.0)})
+    assert not agent.handle("can you start a new session for the").get("ignored")
+    assert agent.ctx.llm.calls == 1
+
+
+def test_echo_filter_never_cuts_the_middle_of_a_sentence():
+    from forgemind.agent.orchestrator import _words, strip_echo
+    said = [_words("The hex key was last seen on the bench (right side) by the bench camera.")]
+    text = "what's on the bench right now?"
+    assert strip_echo(text, said) == text
+    said = [_words("Turn it a little and say it again so I can recognise it from other angles.")]
+    assert strip_echo("recognise it from other angles. See I have a small pen drive", said) == "See I have a small pen drive"
