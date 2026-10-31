@@ -29,6 +29,8 @@ class Runtime:
         self.llm = llm or build_llm(settings)
         self.ctx = Context(settings, self.memory, self.perception, self.safety, self.hub, self.llm)
         self.agent = Agent(self.ctx)
+        self.desk_mic_enabled = True       # the phone's Desk mic button
+        self.desk_mic_open = 0
         self.speaker = None
         if settings.tts == "kokoro":
             from forgemind.server.tts import Speaker

@@ -69,6 +69,24 @@ Memory backups (git-ignored, deletable): `forgemind-data.bak-phonetest-20261031`
 camera stills from the test, including the user's home), `forgemind-data.bak-evalworld-20261030`.
 Bench preview: open `/bench` on the server (the OpenCV install is headless, so no windows; `--show` prints the address).
 
+## Second phone test fixes (Oct 31)
+
+Phone test 2: Spark median 4.1 s, max 19 s (queue included). Causes and fixes:
+- It heard itself: phone mic now stays quiet 1.2 s after speech, `strip_echo` drops 4+ word runs of
+  recent replies at the start/end of a turn (never mid-sentence: that once made "what's now?").
+- Cut-off and repeated sentences: `is_cut_off` waits 1.5 s; a longer sentence replaces one waiting.
+- Teach uses frames from when the turn arrived; "this is my X" is fast (`teach_name`).
+- `FM_SEND_FRAMES=false`: frames no longer go to Spark on every turn (they were; only meter reads now).
+- Event `turn` has queue_ms/model_ms/source; `voice` has TTS ms. Agent-eval 19/19, median ~1.1 s.
+- Audio: mic opened with echoCancellation off (it put Android in call mode, moving the route) and
+  only the device in use speaks pushed messages. UNVERIFIED on a phone; devices not identified.
+- Bench: `/bench` shows the newest frame at 3 fps; detection capped ~1/s (`STATIC_MIN_EVERY_S`).
+  Phone boxes glide and fade (still ~0.5 s old: tunnel 250 ms + SAM 175 ms).
+- `forgemind desk-mic` (MX Brio, `cameras/desk_mic.py`): opens only while the bench camera saw the
+  user within 120 s and the phone's Desk mic button is on; replies on PC speakers; same sentence
+  from two mics = one turn. NOT yet run with a real mic.
+**Rule from the user: all cameras off while building; start only for a test.**
+
 ## Where to pick up (Oct 30, end of session)
 
 Nothing left to build before the real phone test; everything below needs the user:

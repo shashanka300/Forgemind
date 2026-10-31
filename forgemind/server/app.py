@@ -60,6 +60,10 @@ tick(); setInterval(tick, 400);
 </script>"""
 
 
+class DeskMicIn(BaseModel):
+    on: bool
+
+
 class SayIn(BaseModel):
     text: str
 
@@ -223,6 +227,11 @@ def create_app(rt):
             return JSONResponse({"reply": f"Something went wrong talking to the model: {e}",
                                  "error": str(e), "trace": []}, 502)
 
+    @app.post("/api/desk-mic")
+    def desk_mic(body: DeskMicIn):
+        rt.desk_mic_enabled = body.on
+        return {"enabled": rt.desk_mic_enabled, "listening": rt.desk_mic_open > 0}
+
     @app.post("/api/tts")
     async def tts(body: SayIn):
         """A reply in the natural voice (MP3); 503 -> the phone uses its own voice."""
@@ -258,6 +267,7 @@ def create_app(rt):
                       if rt.ledger else None),
             "phone_zone": rt.perception.phone_zone.current(now),
             "user_away_s": round(rt.safety.user_away_for(now)),
+            "desk_mic": {"enabled": rt.desk_mic_enabled, "listening": rt.desk_mic_open > 0},
             "session": rt.memory.experiments.state(s["id"]) if s else None,
             "scenes": {c: rt.perception.scene(c) for c in ("static", "mobile")},
             "looks": rt.hub.pending_looks(),
@@ -394,12 +404,15 @@ def create_app(rt):
             source = socket.query_params.get("source") or "phone"
             hooks = TurnHooks(partial=rt.agent.prefetch,
                               turn=lambda text: run_in_threadpool(rt.agent.handle, text, source))
+        is_desk = socket.query_params.get("source") == "desk"
+        rt.desk_mic_open += is_desk
         try:
             # without hooks the phone sends each turn to /api/chat itself
             await rt.asr.run(socket, hands_free, hooks)
         except WebSocketDisconnect:
             pass
         finally:
+            rt.desk_mic_open -= is_desk
             try:
                 await socket.close()
             except (RuntimeError, WebSocketDisconnect):

@@ -58,6 +58,17 @@ def cmd_serve(args):
         rt.close()
 
 
+def cmd_desk_mic(args):
+    from forgemind.cameras.desk_mic import DeskMic, find_device
+    from forgemind.config import Settings
+    s = Settings.from_env(token=args.token) if args.token else Settings.from_env()
+    device = find_device(args.device or s.desk_mic)
+    if not device:
+        raise SystemExit(f"no input device named like '{args.device or s.desk_mic}'")
+    print(f"desk mic: device {device[0]} at {device[1]} Hz; opens only while you're at the bench (Ctrl+C to stop)")
+    DeskMic(args.server, s.token, device).run()
+
+
 def cmd_static_cam(args):
     from forgemind.cameras.static_cam import run
     run(args.server, args.token, args.device, args.fps, args.show, args.loop, args.send_px)
@@ -242,6 +253,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="forgemind", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("desk-mic", help="bench webcam's mic, open while you're at the bench")
+    p.add_argument("--server", default="http://localhost:8770")
+    p.add_argument("--token", default="", help="default: FM_TOKEN")
+    p.add_argument("--device", default="", help="input device name (default: FM_DESK_MIC)")
+    p.set_defaults(fn=cmd_desk_mic)
     p = sub.add_parser("serve", help="start the server")
     p.add_argument("--host")
     p.add_argument("--port", type=int)
