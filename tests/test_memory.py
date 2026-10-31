@@ -375,3 +375,29 @@ def test_taught_detector_labels_what_sam_has_no_word_for(rt):
     rt.memory.registry.delete(v["id"])
     rt.perception.process("mobile", scene([], tag=2), ts=time.time(), force=True)
     assert not [d for d in rt.perception.latest["mobile"]["detections"] if d.get("kind") == "object"]
+
+
+def test_correction_keeps_the_other_object(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    rt.agent.tools.run("teach_object", {"name": "man matters"})
+    other = scene([("multimeter", .3, .3, .7, .7)], tag=2)
+    rt.perception.process("mobile", other, ts=time.time(), force=True)
+    out = rt.agent.tools.run("correct_object", {"wrong_name": "man matters", "right_name": "baby oil"})
+    assert out["summary"].startswith("Fixed")
+    assert rt.memory.registry.find("man matters") and rt.memory.registry.find("baby oil")
+
+
+def test_correcting_to_the_same_name_is_a_better_look(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    rt.agent.tools.run("teach_object", {"name": "pen drive"})
+    out = rt.agent.tools.run("correct_object", {"wrong_name": "pen drive", "right_name": "pen drive"})
+    assert "not the" not in out["summary"]
+
+
+def test_teach_refused_while_paused_or_on_the_desk_view(rt):
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    rt.perception.paused = True
+    assert "paused" in rt.agent.tools.run("teach_object", {"name": "key"})["error"]
+    rt.perception.paused = False
+    rt.perception.view = "static"
+    assert "phone camera" in rt.agent.tools.run("teach_object", {"name": "key"})["error"]

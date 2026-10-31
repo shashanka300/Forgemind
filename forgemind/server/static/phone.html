@@ -24,7 +24,10 @@ header{display:flex;align-items:center;gap:8px;padding:10px 16px;position:sticky
 .chip.zone{color:var(--amber)}
 main{padding:12px 16px;display:flex;flex-direction:column;gap:12px;max-width:720px;margin:0 auto}
 .stage{position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:4/3;border:1px solid var(--line)}
-video,#overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+video,#overlay,#deskView{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#stateBar{display:none;background:#b3261e;color:#fff;font-weight:650;padding:12px;border-radius:10px;margin:8px 0;text-align:center;border:none;width:100%}
+#stateBar.show{display:block}
+#stateBar.net{background:var(--amber);color:var(--amber-ink)}
 .stage .start{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:16px;color:var(--mute)}
 .stage .hud{position:absolute;left:8px;bottom:8px;font:11px var(--mono);color:#fff;background:rgba(0,0,0,.55);padding:3px 7px;border-radius:6px}
 button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;cursor:pointer}
@@ -87,7 +90,8 @@ body.static .static-only{display:block}
 <main>
   <div class="stage" id="stage">
     <video id="video" playsinline muted></video>
-    <canvas id="overlay"></canvas>
+    <img id="deskView" alt="Desk camera" hidden>
+      <canvas id="overlay"></canvas>
     <div class="start" id="start">
       <div id="startText">Camera is off.</div>
       <button class="primary" id="camBtn">Start camera</button>
@@ -98,6 +102,7 @@ body.static .static-only{display:block}
 
   <div class="static-only muted">Bench camera mode: keep this phone fixed over the workbench, plugged in. It sends about one frame a second.</div>
 
+  <button id="stateBar" type="button"></button>
   <div class="cards" id="cards"></div>
 
   <div class="talk mobile-only">
@@ -118,6 +123,7 @@ body.static .static-only{display:block}
 
   <div class="controls">
     <button id="teachBtn" class="mobile-only">Teach object</button>
+    <button id="viewBtn" class="mobile-only">Desk view</button>
     <button id="pauseBtn">Pause cameras</button>
       <button id="deskBtn" >Desk mic</button>
     <button id="privBtn">Private mode</button>
@@ -176,7 +182,7 @@ function snapshot(maxPx, quality) {
 async function loop() {
   while (running) {
     const t0 = performance.now();
-    if (!paused && video.videoWidth) {
+    if (!paused && video.videoWidth && view === "mobile") {
       try {
         const blob = await snapshot(SEND_PX, 0.72);
         const out = await api(`/api/frame?camera=${ROLE}`, {method: "POST", headers: {"Content-Type": "image/jpeg"}, body: blob});
@@ -184,7 +190,8 @@ async function loop() {
         if (out.zone) $("zone").textContent = "📍 " + out.zone;
         $("hud").textContent = out.paused ? "paused" : `${ROLE} · ${lastDets.length} seen · ${out.ms ?? 0} ms${out.skipped ? " · no change" : ""}`;
         (out.events || []).forEach(e => { if (e.type === "look_done") toast("Thanks, got it.", "look"); });
-      } catch (e) { $("hud").textContent = "offline"; await sleep(1500); }
+        netOk();
+      } catch (e) { $("hud").textContent = "offline"; netBad(); await sleep(1500); }
     }
     draw();
     await sleep(Math.max(0, INTERVAL - (performance.now() - t0)));
@@ -373,6 +380,8 @@ function onPush(m) {
     card("", "Report ready", m.name, {html: `<a style="color:var(--amber)" href="${esc(m.url)}" target="_blank">Open report</a>`});
   } else if (m.type === "budget") {
     card("alert", "API budget", m.text);
+  } else if (m.type === "view") {
+    setView(m.camera);
   } else if (m.type === "say") {
     if (inUseHere()) speak(m.text);
   }
@@ -536,7 +545,7 @@ function handsFree(on) {
         const t = serverTurns[m.text]; delete serverTurns[m.text];
         if (t) finishTurn(t, m); else { addMsg("a", m.reply, m.trace); speak(m.reply); }
       }
-      else if (m.type === "error") toast("Speech: " + m.text);
+      else if (m.type === "error") $("hud").textContent = "voice reconnecting…";
     };
     sock.onclose = () => { if (!state.stop) setTimeout(() => state.stop || open(), 1000); };
     if (!state.stream) {
@@ -608,6 +617,7 @@ async function refresh() {
   const st = await api("/api/state").catch(() => null);
   if (st) {
     setVoice((st.providers || {}).tts);         // the voice finishes loading after the page
+    setView(st.view || "mobile");
     const dm = st.desk_mic || {};
     $("deskBtn").classList.toggle("on", !!dm.enabled);
     $("deskBtn").textContent = !dm.enabled ? "Desk mic off" : dm.listening ? "Desk mic listening" : "Desk mic on";
@@ -615,6 +625,7 @@ async function refresh() {
     if (st.phone_zone) $("zone").textContent = "📍 " + st.phone_zone;
     paused = st.paused; $("pauseBtn").classList.toggle("on", paused); $("pauseBtn").textContent = paused ? "Resume cameras" : "Pause cameras";
     $("privBtn").classList.toggle("on", st.private);
+    showState();
     renderSession(st);
   }
   const pane = document.querySelector("nav button.on").dataset.pane;
@@ -684,8 +695,51 @@ $("deskBtn").onclick = async () => {
   const on = !$("deskBtn").classList.contains("on");
   await post("/api/desk-mic", {on}); toast(on ? "Desk mic on: it opens while you're at the bench." : "Desk mic off."); refresh();
 };
-$("pauseBtn").onclick = async () => { const r = await post("/api/privacy", {paused: !paused}); paused = r.paused; refresh(); };
-$("privBtn").onclick = async () => { const on = !$("privBtn").classList.contains("on"); await post("/api/privacy", {private: on}); toast(on ? "Private mode: nothing is stored." : "Private mode off."); refresh(); };
+$("pauseBtn").onclick = async () => {
+  if (!paused && !confirm("Pause all cameras? ForgeMind won't be able to see anything.")) return;
+  const r = await post("/api/privacy", {paused: !paused}); paused = r.paused; refresh();
+};
+// What it can't do right now, where it can't be missed. Tap to fix.
+let netFails = 0;
+const netOk = () => { netFails = 0; showState(); };
+const netBad = () => { netFails++; showState(); };
+function showState() {
+  const b = $("stateBar"), priv = $("privBtn").classList.contains("on");
+  const text = paused ? "Cameras are PAUSED. Tap to resume." : priv ? "PRIVATE MODE: nothing is being stored. Tap to turn off."
+    : netFails >= 3 ? "Reconnecting…" : "";
+  b.textContent = text; b.classList.toggle("show", !!text); b.classList.toggle("net", !paused && !priv);
+}
+$("stateBar").onclick = async () => {
+  if (paused) await post("/api/privacy", {paused: false});
+  else if ($("privBtn").classList.contains("on")) await post("/api/privacy", {private: false});
+  refresh();
+};
+// Which camera the user looks through: the phone's own, or the mounted one a few times a second.
+let view = "mobile", deskTimer = null;
+function setView(v) {
+  if (v === view) return;
+  view = v;
+  const desk = v === "static", img = $("deskView");
+  img.hidden = !desk; video.style.visibility = desk ? "hidden" : "";
+  $("start").style.visibility = desk ? "hidden" : "";     // no "Start camera" over the desk picture
+  $("viewBtn").textContent = desk ? "Phone view" : "Desk view";
+  clearInterval(deskTimer);
+  if (desk) {
+    lastDets = [];                       // the desk picture has its boxes drawn in
+    const tick = async () => {
+      const r = await fetch("/api/cameras/static/latest.jpg", {credentials: "same-origin"}).catch(() => null);
+      if (r && r.ok) { const u = URL.createObjectURL(await r.blob()), old = img.src; img.src = u; if (old) URL.revokeObjectURL(old); }
+    };
+    tick(); deskTimer = setInterval(tick, 400);
+  }
+}
+$("viewBtn").onclick = async () => {
+  const r = await post("/api/view", {camera: view === "static" ? "phone" : "desk"});
+  if (r.error) toast(r.error); refresh();
+};
+$("privBtn").onclick = async () => { const on = !$("privBtn").classList.contains("on");
+  if (on && !confirm("Turn on private mode? Nothing will be stored.")) return;
+  await post("/api/privacy", {private: on}); toast(on ? "Private mode: nothing is stored." : "Private mode off."); refresh(); };
 $("teachBtn").onclick = async () => {
   if (!running) return toast("Start the camera and point it at the object first.");
   const name = prompt("What should I call the object in front of the camera?");

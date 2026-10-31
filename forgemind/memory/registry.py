@@ -43,6 +43,9 @@ def fmt_ago(seconds):
     return f"{s // 86400} day{'s' if s // 86400 != 1 else ''} ago"
 
 
+UNLEARN_MIN_SIM = 0.93
+
+
 class TeachConflict(Exception):
     """The views being taught look like a different taught object."""
 
@@ -102,6 +105,9 @@ class Registry:
                 if sim > best_sim:
                     best, best_sim = e["id"], sim
         return (best, best_sim) if best_sim >= min_sim else (None, best_sim)
+
+    def unit_embedding(self, crop):
+        return _norm(self.emb.embed_images([crop])[0])
 
     def similarity_to(self, eid, vec):
         rows = self.db.all("SELECT vec FROM entity_refs WHERE entity_id=?", (eid,))
@@ -274,7 +280,9 @@ class Registry:
         """
         v = _norm(self.emb.embed_images([crop])[0])
         rows = self.db.all("SELECT id, vec FROM entity_refs WHERE entity_id=?", (eid,))
-        gone = [r["id"] for r in rows if float(v @ blob_to_vec(r["vec"])) >= self.s.teach_min_sim]
+        # Only nearly the same picture: a similar bottle under another name stays (test 5: each
+        # correction wiped out the object before it).
+        gone = [r["id"] for r in rows if float(v @ blob_to_vec(r["vec"])) >= UNLEARN_MIN_SIM]
         for rid in gone:
             self.db.execute("DELETE FROM entity_refs WHERE id=?", (rid,))
         left = [blob_to_vec(r["vec"]) for r in rows if r["id"] not in gone]

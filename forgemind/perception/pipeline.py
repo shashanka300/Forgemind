@@ -151,8 +151,10 @@ class Perception:
         self.phone_zone = ZoneTracker(settings.zones)
         self.gate = ChangeGate()
         self.newest = {}
+        self.newest_at = {}
         self.hazard_frames = {}
         self.learning = {}                   # taught entity -> until when the phone adds views
+        self.view = "mobile"                 # the camera the user is looking through: mobile | static
         self.taught_detector = None          # providers/yoloe_taught.py; None = candidates + PE
         self.bench_dirty = False
         self.latest = {}             # camera -> {"ts", "image", "detections", "zone"}
@@ -205,6 +207,21 @@ class Perception:
         now = now or time.time()
         return [f for f in reversed(self.recent) if now - f["ts"] <= max_age]
 
+    def view_frame(self, max_age):
+        """(image, label) of the current view if it is fresh, else None."""
+        item = self.latest.get(self.view)
+        image = self.newest.get(self.view) or (item or {}).get("image")
+        if self.paused or image is None:
+            return None
+        if self.view == "mobile" and (not item or time.time() - item["ts"] > max_age):
+            return None
+        if self.view == "static" and self.last_static_frame_age() > max_age:
+            return None
+        return image, ("the bench camera" if self.view == "static" else "the phone's camera")
+
+    def last_static_frame_age(self):
+        return time.time() - self.newest_at.get("static", 0)
+
     def current_image(self, camera):
         item = self.latest.get(camera)
         return item["image"] if item else None
@@ -218,9 +235,10 @@ class Perception:
             return {"paused": True, "detections": []}
         ts = ts or time.time()
         image = data if isinstance(data, Image.Image) else self.decode(data)
+        self.newest[camera] = image          # what people see: processed or not, and unmasked
         if camera == "static":
             image = bench.apply(image, self.s.bench_roi, self.s.bench_masks)
-        self.newest[camera] = image          # the live preview shows this, processed or not
+        self.newest_at[camera] = time.time()
         with self._lock:
             return self._process(camera, image, ts, force)
 

@@ -54,6 +54,7 @@ class Runtime:
         if self.ledger:
             self.ledger.on_warn = lambda m: self.hub.push({"type": "budget", "text": m})
         self.asr = VoiceTranscribeRelay(settings, ledger=self.ledger)
+        self.asr.on_error = lambda m: self.memory.db.log_event("voice_error", "observed", {"message": m[:300]})
         self._stop = threading.Event()
 
     def _warm_system1(self):

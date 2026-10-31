@@ -18,7 +18,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from forgemind import reports
-from forgemind.memory.registry import TeachConflict
+from forgemind.memory.registry import UNLEARN_MIN_SIM, TeachConflict
 from forgemind.perception.pipeline import CANDIDATE_CONCEPT, covered
 from forgemind.providers.openai_compat import image_part
 
@@ -89,6 +89,10 @@ def name_said(name, text):
     return not want or len(want & words(text)) * 2 >= len(want)
 
 
+class SwitchCamera(BaseModel):
+    camera: Literal["desk", "phone"]
+
+
 class RememberFact(BaseModel):
     text: str = Field(..., description="Short third-person fact, e.g. 'keeps ML books on the second shelf'")
 
@@ -155,6 +159,7 @@ SPECS = {
     "highlight": (Highlight, "Highlight an object on the phone's live view, or show its last-seen card if it isn't in view."),
     "watch_bench": (WatchBench, "Start a safety watch when the user asks you to watch, keep an eye on or monitor something: 'unattended' (object on the bench while the user is away, e.g. the soldering iron) or 'present' (e.g. smoke). Not for finding objects."),
     "teach_object": (TeachObject, "Remember the object in front of the phone under a name the user says in THIS message ('this is my X'). Never for thanks, remarks or follow-ups."),
+    "switch_camera": (SwitchCamera, "Switch what the user sees on the phone and what you look through: the mounted bench camera (desk) or the phone's camera."),
     "remember_fact": (RememberFact, "Save something the user wants remembered: where things are kept, what a place is, how they work."),
     "correct_object": (CorrectObject, "The user says an object you labelled is really something else ('that's not X, it's Y'): removes the wrong label from the object in front of the phone and teaches the right one."),
     "start_session": (StartSession, "Start a new experiment/work session (repeats carry over unfinished steps)."),
@@ -291,16 +296,15 @@ class ToolBox:
 
         Comparing pictures this way catches what the embedding match misses.
         """
-        llm, latest = self.ctx.llm, self.ctx.perception.latest.get("mobile")
+        llm, view = self.ctx.llm, self.ctx.perception.view_frame(LOOK_MAX_AGE_S)
         ref = self.mem.keyframes_dir.parent / "refs" / f"{top['id']}.jpg"
-        if (not getattr(llm, "supports_vision", False) or not latest or not ref.exists()
-                or time.time() - latest["ts"] > LOOK_MAX_AGE_S):
+        if not getattr(llm, "supports_vision", False) or not view or not ref.exists():
             return None
         from PIL import Image
         try:
             res = llm.chat([{"role": "user", "content": [
                 {"type": "text", "text": LOOK_PROMPT.format(name=top["label"])},
-                image_part(Image.open(ref), max_px=384), image_part(latest["image"], max_px=768)]}],
+                image_part(Image.open(ref), max_px=384), image_part(view[0], max_px=768)]}],
                 model=llm.model_for("worker"), json_mode=True)
             return json.loads(res.content or "{}")
         except Exception:
@@ -316,10 +320,15 @@ class ToolBox:
         cams = ["static", "mobile"] if a.camera == "both" else [a.camera]
         scenes = [self.ctx.perception.scene(c) for c in cams]
         parts = []
+        if self.ctx.perception.paused:
+            return {"scenes": scenes, "summary": "Your cameras are paused, so I can't see anything. Tap Resume cameras on the phone."}
         for sc in scenes:
             who = "bench camera" if sc["camera"] == "static" else "phone"
             if not sc["available"]:
                 parts.append(f"The {who} isn't streaming.")
+                continue
+            if sc["camera"] == "mobile" and sc.get("age_s", 0) > 15:
+                parts.append(f"The phone's picture is {int(sc['age_s'])} seconds old, so it may have lost its connection.")
                 continue
             objs = ", ".join(sc["objects"]) or "nothing I recognise"
             where = f" ({sc['zone']})" if sc.get("zone") else ""
@@ -441,6 +450,10 @@ class ToolBox:
     def teach_object(self, a: TeachObject):
         """Name the object in front of the phone, from up to TEACH_VIEWS recent frames."""
         p = self.ctx.perception
+        if p.paused:
+            raise ToolError("Your cameras are paused. Tap Resume cameras on the phone first.")
+        if p.view == "static":
+            raise ToolError("To teach something, switch back to your phone camera and hold it up.")
         frames = self.turn_frames or p.recent_frames(TEACH_WINDOW_S)
         if not frames:
             if p.current_image("mobile") is None:
@@ -483,6 +496,17 @@ class ToolBox:
                            "found": True})
         return {"entity": v, "views": hows, "summary": summary}
 
+    def switch_camera(self, a: SwitchCamera):
+        p = self.ctx.perception
+        if a.camera == "desk":
+            if p.last_static_frame_age() > 10:
+                raise ToolError("The desk camera isn't streaming right now, so I'll stay on your phone.")
+            p.view = "static"
+        else:
+            p.view = "mobile"
+        self.ctx.hub.push({"type": "view", "camera": p.view})
+        return {"camera": p.view, "summary": f"Okay, showing the {'desk' if a.camera == 'desk' else 'phone'} camera."}
+
     def remember_fact(self, a: RememberFact):
         s = self.mem.experiments.active()
         self.mem.notes.add("fact", a.text, source_turn=self.utterance, session_id=s["id"] if s else None)
@@ -491,6 +515,8 @@ class ToolBox:
     def correct_object(self, a: CorrectObject):
         """Move the object in front of the phone from a wrong label to the right one."""
         p, reg = self.ctx.perception, self.mem.registry
+        if " ".join(a.wrong_name.lower().split()) == " ".join(a.right_name.lower().split()):
+            return self.teach_object(TeachObject(name=a.right_name))     # same name: a better look
         latest = p.latest.get("mobile")
         if not latest or time.time() - latest["ts"] > 5:
             raise ToolError(f"Point the phone at the {a.right_name} and tell me again.")
@@ -504,7 +530,8 @@ class ToolBox:
         row = self.mem.db.one("SELECT id FROM entities WHERE deleted=0 AND lower(name)=?", (wrong,))
         removed = reg.unlearn(row["id"], crop) if row else 0
         if row and p.taught_detector:
-            p.taught_detector.remove(row["id"])
+            target_vec = reg.unit_embedding(crop)
+            p.taught_detector.remove_like(row["id"], lambda c: float(reg.unit_embedding(c) @ target_vec) >= UNLEARN_MIN_SIM)
         v = reg.teach(a.right_name, [crop], target["concept"], latest.get("keyframe"), force=True)
         reg.saw_taught(v["id"], p.phone_zone.current(time.time()), target["box"], latest.get("keyframe"))
         self._save_reference(v["id"], crop)

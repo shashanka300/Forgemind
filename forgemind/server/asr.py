@@ -62,6 +62,8 @@ async def default_connect(url):
 
 
 class VoiceTranscribeRelay:
+    on_error = None
+
     def __init__(self, settings, connect=default_connect, ledger=None):
         self.url = realtime_url(settings.meta_base_url)
         self.key = settings.meta_api_key
@@ -105,7 +107,11 @@ class VoiceTranscribeRelay:
             await phone.send_json({"type": "final", "text": final})
             return final
         except Exception as e:
-            await phone.send_json({"type": "error", "text": f"{type(e).__name__}: {e}"})
+            self.report(f"{type(e).__name__}: {e}")
+            try:
+                await phone.send_json({"type": "error", "text": f"{type(e).__name__}: {e}"})
+            except Exception:
+                pass                       # the phone has gone: it reconnects by itself
             return None
         finally:
             try:
@@ -113,6 +119,11 @@ class VoiceTranscribeRelay:
             except Exception:
                 pass
             self._bill()
+
+    def report(self, message):
+        print(f"voice: {message}", flush=True)
+        if self.on_error:
+            self.on_error(message)
 
     def _bill(self):
         """16 kHz 16-bit mono = 32,000 bytes per second; billed per whole second."""

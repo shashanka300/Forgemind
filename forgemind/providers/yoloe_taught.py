@@ -80,6 +80,24 @@ class TaughtDetector:
                 self.views.append({"eid": eid, "vpe": vpe, "file": meta})
             self._rebuild()
 
+    def remove_like(self, eid, is_same):
+        """Drop this object's examples whose picture `is_same(crop)` says shows the wrong thing."""
+        from PIL import Image
+        with self._lock:
+            dropped = 0
+            for v in [v for v in self.views if v["eid"] == eid]:
+                box = json.loads(v["file"].read_text(encoding="utf-8"))["box"]
+                im = Image.open(v["file"].with_suffix(".jpg")).convert("RGB")
+                W, H = im.size
+                if is_same(im.crop((box[0] * W, box[1] * H, box[2] * W, box[3] * H))):
+                    v["file"].unlink(missing_ok=True)
+                    v["file"].with_suffix(".jpg").unlink(missing_ok=True)
+                    self.views.remove(v)
+                    dropped += 1
+            if dropped:
+                self._rebuild()
+            return dropped
+
     def remove(self, eid):
         with self._lock:
             for v in [v for v in self.views if v["eid"] == eid]:

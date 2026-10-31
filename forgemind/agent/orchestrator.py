@@ -114,6 +114,7 @@ _SETTING_PROMISE = re.compile(r"\b(?:going forward|from now on|from here|only|se
                               r"staying on|stick to|switch(?:ing)? to)\b", re.I)
 CANT_CHANGE_SETUP = ("I can't change that myself. The Hands-free and Desk mic buttons on the phone "
                      "choose which mic listens.")
+PAUSED_REPLY = "Your cameras are paused, so I can't see anything. Tap Resume cameras on the phone."
 
 
 def after_wake(text):
@@ -211,13 +212,13 @@ class Agent:
         self._frame_sent = False
         if not self.ctx.settings.send_frames and getattr(llm, "supports_vision", False) \
                 and self.ctx.settings.vision_on_ask and VISUAL.search(text):
-            item = p.latest.get("mobile")
-            if item and time.time() - item["ts"] < FRAME_MAX_AGE_S:
+            view = p.view_frame(FRAME_MAX_AGE_S)
+            if view:
                 self._frame_sent = True
                 return {"role": "user", "content": [
                     {"type": "text", "text": prefix + text},
-                    {"type": "text", "text": "[the phone's camera right now]"},
-                    image_part(item["image"], max_px=768, quality=75)]}
+                    {"type": "text", "text": f"[{view[1]} right now]"},
+                    image_part(view[0], max_px=768, quality=75)]}
         if not (self.ctx.settings.send_frames and getattr(llm, "supports_vision", False)):
             return {"role": "user", "content": prefix + text}
         parts = [{"type": "text", "text": prefix + text}]
@@ -427,6 +428,10 @@ class Agent:
                         self._user_message(text, prefix=situation)]
             self._remember("user", text)
             self.ctx.memory.db.log_event("speech", "stated", {"text": text})
+            if self.ctx.perception.paused and VISUAL.search(text):
+                reply = PAUSED_REPLY
+                self._remember("assistant", reply)
+                return {"reply": reply, "trace": [], "ms": round((time.perf_counter() - t0) * 1000)}
             fast = self._fast_path(text, messages, t0)
             if fast:
                 return fast

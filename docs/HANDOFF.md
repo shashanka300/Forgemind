@@ -109,6 +109,13 @@ Not covered by these: real audio, read_closeup, an alert firing live. Live Spark
 prompt tokens to explain it. Researched alternatives (YOLOE visual prompts, OWLv2, SAM 3 exemplars
 across images): kept SAM + PE for now, YOLOE is the first thing to try if recall stays poor.
 
+## Test 5 fixes (branch `yoloe`)
+
+Test 5 lost 5 minutes to Pause + Private tapped at 19:23 while looking for a "Desk button" Spark invented. Now: red banner (tap
+to fix), confirm before pausing, paused answers say so. Corrections only drop nearly identical views (`UNLEARN_MIN_SIM`), each used
+to wipe the object before. "The next one is X" teaches. New `switch_camera` + Desk view button: `perception.view`, phone shows
+`/api/cameras/static/latest.jpg` and stops sending frames; questions use that camera. Voice errors saved (`voice_error`).
+
 ## YOLOE for taught objects (branch `yoloe`, not merged)
 
 `providers/yoloe_taught.py`: the teach box is a visual prompt; embeddings made once, kept in `<data>/taught`, all checked per

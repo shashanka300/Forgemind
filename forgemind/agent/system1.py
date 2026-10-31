@@ -33,11 +33,22 @@ INTENT = {
 }
 # "this is my X" names the object in hand: taught at once, while it is still being held.
 _TEACH = re.compile(r"^\W*(?:(?:so|okay|ok|alright|yeah|yes|and|hey|right|now|um|uh)\W+)*"
-                    r"(?:this|that|these|those)(?:'s|\s+is|\s+are)\s+(?:my|the|our|a|an)\s+"
+                    r"(?:(?:this|that|these|those)(?:'s|\s+is|\s+are)|here(?:'s|\s+is|\s+are)|"
+                    r"(?:the\s+)?next\s+(?:one\s+|object\s+)?is|this\s+one\s+is)\s+(?:my|the|our|a|an)\s+"
                     r"(?P<name>[\w'\- ]{2,40}?)\W*$", re.I)
 _NOT_A_NAME = re.compile(r"\b(?:which|that|where|when|because|for|on|in|at|and|with|behind|i|it|to|"
                          r"of|problem|mistake|issue|question|joke|session|experiment|test|bit|"
                          r"thing|way|point|reason|idea|one)\b", re.I)
+
+
+_SWITCH = re.compile(r"\b(?:switch|change|go|move)\b.*\b(?:to|back to)\s+(?:the\s+|my\s+)?"
+                     r"(?P<cam>desk|bench|mounted|fixed|static|phone|mobile)\b", re.I)
+
+
+def switch_target(text):
+    """"desk" or "phone" if this sentence asks to change cameras, else None."""
+    m = _SWITCH.search(text)
+    return (None if not m else "phone" if m["cam"].lower() in ("phone", "mobile") else "desk")
 
 
 def teach_name(text):
@@ -235,6 +246,10 @@ class System1:
         if is_compound(text.strip()):
             self.last_reason = "compound"
             return None
+        cam = switch_target(text)
+        if cam:
+            self.last_decision = {"tool": "switch_camera", "conf": 1.0, "multi": 0.0}
+            return FastAction("switch_camera", {"camera": cam}, 1.0, dict(self.last_decision))
         name = teach_name(text)
         if name:
             self.last_decision = {"tool": "teach_object", "conf": 1.0, "multi": 0.0}

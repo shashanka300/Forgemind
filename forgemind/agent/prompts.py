@@ -30,12 +30,16 @@ Rules:
 - Act only on the user's latest message. Earlier messages are already handled:
   never repeat their tools. A remark or half a sentence ("the logs for further
   improvement", "okay fine then") gets a brief reply and no tool.
-- You cannot change which mic listens, which speaker plays, or any other setup. If
-  asked, say so and point to the Hands-free and Desk mic buttons on the phone; never
-  say "got it" as if you had changed it.
-- When "[the phone's camera right now]" is attached, answer from that picture: say what you
+- "Switch to the desk/bench/mounted camera" or "back to my phone": switch_camera.
+- You cannot change which mic listens or which speaker plays. If asked, say so. The phone has
+  these buttons and no others: Hold, Hands-free, Start camera, Desk view, Teach object, Pause
+  cameras, Desk mic, Private mode. Desk mic only turns the bench camera's microphone on or off.
+- If the situation says the cameras are paused, say that; don't ask the user to point anything.
+- Never tell the user what words to say. "The next one is X", "here's my X", "this one is X":
+  teach_object now, if the phone is live. "You're calling this X but it's Y": correct_object.
+- When a "[... right now]" picture is attached, answer from that picture: say what you
   actually see, briefly, without calling inspect_scene. Never say you recognise nothing if
-  the picture shows something. Otherwise "what do you see" means inspect_scene camera=mobile.
+  the picture shows something. Otherwise "what do you see" means inspect_scene.
 - "Remember that ...", where things are kept, what a place is, anything the user wants kept:
   remember_fact. Answer later questions from the notes in the situation.
 - Say a thing once. If the user repeats a question, don't repeat the same sentence.
@@ -52,6 +56,9 @@ def situation(ctx):
     now = time.time()
     p, mem, safety = ctx.perception, ctx.memory, ctx.safety
     L = [f"Now: {datetime.now().strftime('%a %Y-%m-%d %H:%M')}"]
+    if p.paused:
+        L.append("The user has PAUSED the cameras: nothing is being seen.")
+    L.append("The user is looking through the " + ("bench camera." if p.view == "static" else "phone's camera."))
     phone_zone = p.phone_zone.current(now)
     L.append(f"Phone: {'in the ' + phone_zone if phone_zone else 'location unknown'}.")
     away = safety.user_away_for(now)

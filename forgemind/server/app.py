@@ -60,6 +60,10 @@ tick(); setInterval(tick, 400);
 </script>"""
 
 
+class ViewIn(BaseModel):
+    camera: str
+
+
 class DeskMicIn(BaseModel):
     on: bool
 
@@ -227,6 +231,10 @@ def create_app(rt):
             return JSONResponse({"reply": f"Something went wrong talking to the model: {e}",
                                  "error": str(e), "trace": []}, 502)
 
+    @app.post("/api/view")
+    def view(body: ViewIn):
+        return rt.agent.tools.run("switch_camera", {"camera": body.camera})
+
     @app.post("/api/desk-mic")
     def desk_mic(body: DeskMicIn):
         rt.desk_mic_enabled = body.on
@@ -268,6 +276,7 @@ def create_app(rt):
             "phone_zone": rt.perception.phone_zone.current(now),
             "user_away_s": round(rt.safety.user_away_for(now)),
             "desk_mic": {"enabled": rt.desk_mic_enabled, "listening": rt.desk_mic_open > 0},
+            "view": rt.perception.view,
             "phone_mic": {"listening": rt.phone_mic_open > 0,
                           "idle_s": round(now - rt.phone_mic_closed_at)},
             "wake_word": rt.settings.wake_word,

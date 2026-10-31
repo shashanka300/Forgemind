@@ -467,3 +467,42 @@ def test_where_is_asks_the_model_to_look_when_matching_misses(rt):
     spark.content = json.dumps({"found": False, "where": None, "box": None})
     out = rt.agent.tools.run("where_is", {"query": "biter"})
     assert not out["in_view"] and out["summary"].startswith("I can't see your biter")
+
+
+@pytest.mark.parametrize("text,name", [
+    ("The next one is a Himalaya baby oil.", "Himalaya baby oil"), ("next is the blue pliers", "blue pliers"),
+    ("here's my pen drive", "pen drive"), ("this one is a timer.", "timer"),
+])
+def test_teach_name_other_ways_of_saying_it(text, name):
+    from forgemind.agent.system1 import teach_name
+    assert teach_name(text) == name
+
+
+@pytest.mark.parametrize("text,cam", [
+    ("switch to the desk camera", "desk"), ("can you change to the mounted camera?", "desk"),
+    ("switch back to my phone", "phone"), ("go to the bench camera", "desk"), ("where's my phone", None),
+])
+def test_switch_target(text, cam):
+    from forgemind.agent.system1 import switch_target
+    assert switch_target(text) == cam
+
+
+def test_switching_needs_a_streaming_desk_camera_and_changes_what_it_looks_at(rt):
+    tools = rt.agent.tools
+    assert "isn't streaming" in tools.run("switch_camera", {"camera": "desk"})["error"]
+    rt.perception.process("static", scene([("multimeter", .4, .4, .6, .6)]))
+    assert tools.run("switch_camera", {"camera": "desk"})["camera"] == "static"
+    assert [m for m in rt.hub.outbox if m["type"] == "view"][-1]["camera"] == "static"
+    spark = VisionStub()
+    agent = fast_agent(rt, {}, spark)
+    agent.system1 = None
+    agent.handle("what do you see?")
+    assert has_image(spark.messages[-1]) and "bench camera" in str(spark.messages[-1][-1]["content"][1])
+    assert tools.run("switch_camera", {"camera": "phone"})["camera"] == "mobile"
+
+
+def test_paused_cameras_are_named_not_nothing_i_recognise(rt):
+    agent = fast_agent(rt, {})
+    rt.perception.paused = True
+    assert "paused" in agent.handle("what do you see?")["reply"] and agent.ctx.llm.calls == 0
+    assert "paused" in rt.agent.tools.run("inspect_scene", {"camera": "mobile"})["summary"]
