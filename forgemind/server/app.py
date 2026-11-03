@@ -49,14 +49,15 @@ img{max-width:100%;max-height:92vh}#s{padding:6px}</style>
 <script>
 const f = document.getElementById("f"), s = document.getElementById("s");
 async function tick() {
-  const r = await fetch("/api/cameras/static/latest.jpg", {credentials: "same-origin"}).catch(() => null);
+  const r = await fetch("/api/cameras/static/latest.jpg?px=" + (location.port === "8771" ? 1280 : 800), {credentials: "same-origin"}).catch(() => null);
   if (r && r.ok) { const u = URL.createObjectURL(await r.blob()), old = f.src; f.src = u; if (old) URL.revokeObjectURL(old); }
   const st = await fetch("/api/state", {credentials: "same-origin"}).then(r => r.json()).catch(() => null);
   const b = st && st.scenes && st.scenes.static;
   if (b && b.available) s.textContent = "Live. Boxes update when the bench changes (last " + Math.round(b.age_s) + " s ago): " + (b.objects.join(", ") || "nothing recognised");
   else if (r && !r.ok) s.textContent = "No frames: the bench camera isn't streaming.";
 }
-tick(); setInterval(tick, 400);
+// one at a time: a slow link shows the newest frame late, never a pile of old ones
+(async function loop() { const t = Date.now(); await tick(); setTimeout(loop, Math.max(0, 300 - (Date.now() - t))); })();
 </script>"""
 
 
@@ -120,7 +121,8 @@ def create_app(rt):
             rest = "&".join(f"{k}={v}" for k, v in q.items() if k != "t")
             resp = RedirectResponse(request.url.path + (f"?{rest}" if rest else ""), 303)
             resp.set_cookie(COOKIE, token, max_age=2592000, httponly=True, samesite="lax",
-                            secure=request.headers.get("x-forwarded-proto") == "https")
+                            secure=request.headers.get("x-forwarded-proto") == "https"
+                            or request.url.port == rt.settings.lan_https_port)
             return resp
         if request.url.path.startswith("/api/"):
             return JSONResponse({"error": "locked"}, 401)
@@ -135,7 +137,8 @@ def create_app(rt):
         if token and hmac.compare_digest(given.encode(), token.encode()):
             resp = RedirectResponse("/", 303)
             resp.set_cookie(COOKIE, token, max_age=2592000, httponly=True, samesite="lax",
-                            secure=request.headers.get("x-forwarded-proto") == "https")
+                            secure=request.headers.get("x-forwarded-proto") == "https"
+                            or request.url.port == rt.settings.lan_https_port)
             return resp
         await asyncio.sleep(1)             # no fast guessing
         return HTMLResponse(LOCKED.replace("__ERROR__", "<p>That token isn't right.</p>"), 401)
@@ -156,7 +159,7 @@ def create_app(rt):
         return HTMLResponse(BENCH_PAGE, headers={"Cache-Control": "no-store"})
 
     @app.get("/api/cameras/{camera}/latest.jpg")
-    def latest_frame(camera: str):
+    def latest_frame(camera: str, px: int = 1280):
         """The newest processed frame of a camera, with its detections drawn."""
         from io import BytesIO
 
@@ -168,7 +171,8 @@ def create_app(rt):
             raise HTTPException(404, "no frame yet")
         item = item or {}
         img = (newest or item["image"]).convert("RGB")
-        img.thumbnail((1280, 1280))
+        px = max(320, min(px, 1920))
+        img.thumbnail((px, px))
         W, H = img.size
         draw = ImageDraw.Draw(img)
         for d in item.get("detections") or []:
@@ -177,7 +181,7 @@ def create_app(rt):
             draw.rectangle((x0 * W, y0 * H, x1 * W, y1 * H), outline=color, width=2)
             draw.text((x0 * W + 4, y0 * H + 3), d.get("label") or d["concept"], fill=color)
         buf = BytesIO()
-        img.save(buf, "JPEG", quality=80)
+        img.save(buf, "JPEG", quality=80 if px > 800 else 70)
         return Response(buf.getvalue(), media_type="image/jpeg",
                         headers={"Cache-Control": "no-store"})
 

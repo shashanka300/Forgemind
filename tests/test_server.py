@@ -132,3 +132,19 @@ def test_bench_detection_stays_at_one_a_second(rt):
         rt.perception.process("static", scene([("multimeter", x, .4, x + .1, .6)]), ts=1000 + i / 3)
     assert len(calls) == 3
     assert rt.perception.newest["static"] is not None   # the preview still got every frame
+
+
+def test_desk_view_frame_can_be_small(rt):
+    from io import BytesIO
+
+    from fastapi.testclient import TestClient
+    from PIL import Image
+
+    from conftest import scene
+    from forgemind.server.app import create_app
+    with TestClient(create_app(rt), base_url="https://testserver") as c:
+        c.get("/?t=secret-token")
+        rt.perception.process("static", scene([("multimeter", .4, .4, .6, .6)], size=(1920, 1080)))
+        big = c.get("/api/cameras/static/latest.jpg").content
+        small = c.get("/api/cameras/static/latest.jpg?px=640").content
+        assert max(Image.open(BytesIO(small)).size) == 640 and len(small) < len(big)

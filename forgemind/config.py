@@ -40,6 +40,7 @@ HAZARD_CONCEPTS = {"smoke", "fire", "flame"}
 class Settings:
     host: str = "0.0.0.0"
     port: int = 8770
+    lan_https_port: int = 8771   # direct https on the Wi-Fi when <data>/certs has a cert
     data_dir: Path = Path("forgemind-data")
     token: str | None = None
 
@@ -105,6 +106,7 @@ class Settings:
         s = cls(
             host=_env("FM_HOST", "0.0.0.0"),
             port=int(_env("FM_PORT", "8770")),
+            lan_https_port=int(_env("FM_LAN_HTTPS_PORT", "8771")),
             data_dir=Path(_env("FM_DATA_DIR", "forgemind-data")),
             token=_env("FM_TOKEN", "auto"),
             llm_provider=_env("FM_LLM_PROVIDER", "mock").lower(),

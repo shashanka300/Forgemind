@@ -6,6 +6,7 @@
     forgemind check                   show providers; test the model API + tool calling
 """
 import argparse
+import asyncio
 import json
 import sys
 from urllib.parse import quote
@@ -51,7 +52,21 @@ def cmd_serve(args):
         from forgemind.server.tunnel import start_zrok
         tunnel = start_zrok(s.port, name=s.zrok_name)
     try:
-        uvicorn.run(create_app(rt), host=s.host, port=s.port, log_level="warning")
+        app = create_app(rt)
+        configs = [uvicorn.Config(app, host=s.host, port=s.port, log_level="warning")]
+        certs = s.data_dir / "certs"
+        if s.lan_https_port and (certs / "cert.pem").exists():
+            # Direct on the Wi-Fi, no tunnel: phones only give the camera to https pages, so this uses
+            # a self-signed certificate (the phone warns once). The app's start-up runs once.
+            configs.append(uvicorn.Config(app, host="0.0.0.0", port=s.lan_https_port, log_level="warning",
+                                          ssl_certfile=str(certs / "cert.pem"), ssl_keyfile=str(certs / "key.pem"),
+                                          lifespan="off"))
+            print(f"  same Wi-Fi, direct (faster): https://{lan_ip()}:{s.lan_https_port}/   "
+                  "(tap through the certificate warning once)\n")
+
+        async def serve_all():
+            await asyncio.gather(*(uvicorn.Server(c).serve() for c in configs))
+        asyncio.run(serve_all())
     finally:
         if tunnel:
             tunnel.terminate()

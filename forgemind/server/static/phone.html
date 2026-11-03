@@ -727,14 +727,19 @@ function setView(v) {
   img.hidden = !desk; video.style.visibility = desk ? "hidden" : "";
   $("start").style.visibility = desk ? "hidden" : "";     // no "Start camera" over the desk picture
   $("viewBtn").textContent = desk ? "Phone view" : "Desk view";
-  clearInterval(deskTimer);
+  clearTimeout(deskTimer);
   if (desk) {
     lastDets = [];                       // the desk picture has its boxes drawn in
+    // Small pictures through the tunnel (~4x less data); full size on the direct Wi-Fi link.
+    const px = location.hostname.endsWith("zrok.io") ? 640 : 1280;
     const tick = async () => {
-      const r = await fetch("/api/cameras/static/latest.jpg", {credentials: "same-origin"}).catch(() => null);
+      const t = Date.now();
+      const r = await fetch("/api/cameras/static/latest.jpg?px=" + px, {credentials: "same-origin"}).catch(() => null);
       if (r && r.ok) { const u = URL.createObjectURL(await r.blob()), old = img.src; img.src = u; if (old) URL.revokeObjectURL(old); }
+      // the next one only after this one: no pile-up on a slow link
+      if (view === "static") deskTimer = setTimeout(tick, Math.max(0, 250 - (Date.now() - t)));
     };
-    tick(); deskTimer = setInterval(tick, 400);
+    tick();
   }
 }
 $("viewBtn").onclick = async () => {
