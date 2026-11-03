@@ -130,6 +130,9 @@ def run(server, token, device=0, fps=1.0, show=False, loop=False, send_px=FRAME_
                 print(f"server said {e.code}: {e.read()[:200]!r}")
             except urllib.error.URLError as e:
                 print(f"server unreachable: {e.reason}")
+            except OSError as e:           # the server restarted mid-frame: keep going
+                print(f"connection dropped: {e}")
+                time.sleep(1)
             time.sleep(max(0.0, period - (time.time() - t)))
     except KeyboardInterrupt:
         pass

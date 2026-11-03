@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ForgeMind video script</title>
+<style>
+:root{--bg:#111;--ink:#f3efe7;--mute:#9a938a;--amber:#f2a33a;--card:#1c1b19}
+body{margin:0;background:var(--bg);color:var(--ink);font:22px/1.45 system-ui,sans-serif}
+header{position:sticky;top:0;background:#000;padding:10px 20px;display:flex;gap:16px;align-items:center;justify-content:space-between}
+header b{color:var(--amber)} .t{font-variant-numeric:tabular-nums;color:var(--mute)}
+main{max-width:1000px;margin:0 auto;padding:20px}
+.scene{background:var(--card);border-radius:14px;padding:18px 22px;margin:14px 0;opacity:.45;border-left:6px solid transparent}
+.scene.now{opacity:1;border-left-color:var(--amber)}
+.num{color:var(--amber);font-weight:700;font-size:18px}
+.say{font-size:34px;font-weight:650;margin:8px 0}
+.say q{quotes:"“" "”"}
+.expect{color:var(--mute);font-size:19px}
+.note{font-size:18px;color:#d9a35c;margin-top:6px}
+ul{font-size:19px;color:var(--mute);margin:6px 0}
+button{font:inherit;font-size:18px;padding:8px 14px;border-radius:10px;border:1px solid #444;background:#222;color:var(--ink)}
+</style>
+<header><span><b>ForgeMind</b> · real take · about 3 min</span><span class="t" id="clock">0:00</span>
+<span><button id="prev">◀ back</button> <button id="next">next ▶ (space)</button></span></header>
+<main id="m">
+<div class="scene"><div class="num">BEFORE YOU RECORD</div>
+<ul><li>Phone: open <b>https://192.168.1.14:8771/</b> → <b>Start camera</b> → <b>Hands-free</b> (keep it on the whole take)</li>
+<li>Screen recorder: media/internal sound only, <b>microphone off</b></li>
+<li>On hand: clippers, timer, baby's biter, multimeter, a circuit board</li>
+<li>One sentence at a time; wait for the reply before the next</li></ul></div>
+
+<div class="scene"><div class="num">0 · INTRO · 0:00–0:15 · to camera</div>
+<div class="say"><q>This is ForgeMind: a workshop assistant with eyes, ears and memory. A camera on my bench, my phone in my hand, and Meta's Muse models.</q></div></div>
+
+<div class="scene"><div class="num">1 · TEACH · 0:15–0:45</div>
+<div class="say">Hold up the clippers: <q>These are my clippers.</q></div>
+<div class="expect">→ "Got it, that's your clippers." Green box flashes. Turn them for 3 seconds.</div>
+<div class="say">Hold up the timer: <q>This is my timer.</q></div>
+<div class="expect">→ "Got it, that's your timer."</div></div>
+
+<div class="scene"><div class="num">2 · RECOGNISE · 0:45–1:05</div>
+<div class="expect">Put both down, step away, come back, point the phone at them.</div>
+<div class="say"><q>What do you see?</q></div>
+<div class="expect">→ names your clippers and timer and what's around them</div></div>
+
+<div class="scene"><div class="num">3 · FIND IT · 1:05–1:30</div>
+<div class="say">Hold up the biter: <q>This is my baby's biter.</q></div>
+<div class="expect">Put it across the room (e.g. on the cooler). Walk back.</div>
+<div class="say"><q>Where's my baby's biter?</q></div>
+<div class="expect">→ finds it / says where it was last seen</div></div>
+
+<div class="scene"><div class="num">4 · MEMORY · 1:30–1:50</div>
+<div class="say"><q>Remember that my ML books are on the second shelf.</q></div>
+<div class="expect">→ "Okay, I'll remember that."</div>
+<div class="say"><q>Where are my ML books?</q></div>
+<div class="expect">→ "On the second shelf."</div></div>
+
+<div class="scene"><div class="num">5 · BENCH CAMERA · 1:50–2:10</div>
+<div class="say"><q>Switch to the desk camera.</q></div>
+<div class="say"><q>What's on my bench?</q></div>
+<div class="say"><q>Switch back to my phone.</q></div>
+<div class="expect">→ the phone shows the mounted camera with boxes, then returns</div></div>
+
+<div class="scene"><div class="num">6 · EXPERIMENT · 2:10–2:40</div>
+<div class="say"><q>Start a session called voltage test.</q></div>
+<div class="say"><q>The steps are wire the divider, measure the output.</q></div>
+<div class="say"><q>I wired the divider.</q></div>
+<div class="say"><q>I measured 3.3 volts on the output.</q></div>
+<div class="say"><q>Write it up.</q></div>
+<div class="expect">→ steps ticked, measurement logged, report appears on the phone</div></div>
+
+<div class="scene"><div class="num">7 · CLOSE · 2:40–3:00 · to camera</div>
+<div class="say"><q>Under the hood: Muse Spark reasons, Muse Voice Transcribe hears me, SAM 3.1 and Perception Encoder see. YOLOE recognises what I teach and Kokoro is the voice. All on one RTX 5090 plus the Meta API, for a few dollars.</q></div></div>
+
+<div class="scene"><div class="num">IF SOMETHING GOES WRONG</div>
+<ul><li>Wrong label → <q>That's not the X, it's my Y.</q></li>
+<li>Misheard → type the line in the text box, or redo the scene</li>
+<li>Long wait → keep going; cut it in editing and caption "pauses shortened"</li>
+<li>Red banner (paused / private) → tap it</li></ul></div>
+</main>
+<script>
+const s=[...document.querySelectorAll('.scene')];let i=0,t0=null;
+function show(){s.forEach((e,k)=>e.classList.toggle('now',k===i));s[i].scrollIntoView({behavior:'smooth',block:'center'});if(i===1&&!t0)t0=Date.now()}
+document.getElementById('next').onclick=()=>{i=Math.min(s.length-1,i+1);show()};
+document.getElementById('prev').onclick=()=>{i=Math.max(0,i-1);show()};
+addEventListener('keydown',e=>{if(e.key===' '||e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();i=Math.min(s.length-1,i+1);show()}if(e.key==='ArrowLeft'||e.key==='PageUp'){i=Math.max(0,i-1);show()}});
+setInterval(()=>{if(t0){const d=Math.floor((Date.now()-t0)/1000);document.getElementById('clock').textContent=Math.floor(d/60)+':'+String(d%60).padStart(2,'0')}},500);
+show();
+</script></html>
