@@ -208,7 +208,9 @@ function videoRect() {
 }
 function draw() {
   const dpr = devicePixelRatio || 1;
-  overlay.width = overlay.clientWidth * dpr; overlay.height = overlay.clientHeight * dpr;
+  const w = Math.round(overlay.clientWidth * dpr), h = Math.round(overlay.clientHeight * dpr);
+  // Resizing a canvas is expensive: only when the size really changes (60 times a second made phones stutter).
+  if (overlay.width !== w || overlay.height !== h) { overlay.width = w; overlay.height = h; }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
   const r = videoRect();
@@ -245,7 +247,12 @@ function smoothed() {
   for (const k of shownBoxes.keys()) if (!seen.has(k)) shownBoxes.delete(k);
   return out;
 }
-(function animate() { if (running) draw(); requestAnimationFrame(animate); })();
+// ~30 redraws a second is plenty for boxes updated a few times a second.
+let lastDraw = 0;
+(function animate(t) {
+  if (running && view === "mobile" && t - lastDraw > 33) { lastDraw = t; draw(); }
+  requestAnimationFrame(animate);
+})(0);
 addEventListener("resize", draw);
 
 // ---------- cards (alerts, look/capture requests, last-seen) ----------
