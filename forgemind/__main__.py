@@ -46,7 +46,7 @@ def cmd_serve(args):
     if s.host == "0.0.0.0":
         print(f"  same Wi-Fi:        http://{lan_ip()}:{s.port}{suffix}")
         print("  (browsers only allow the live camera over HTTPS or localhost; use --zrok for the phone)")
-    print(f"  bench webcam:      forgemind static-cam --server http://localhost:{s.port} --token {s.token}\n")
+    print(f"  bench webcam:      forgemind static-cam --server http://127.0.0.1:{s.port} --token {s.token}\n")
     tunnel = None
     if args.zrok:
         from forgemind.server.tunnel import start_zrok
@@ -269,7 +269,7 @@ def main(argv=None):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("desk-mic", help="bench webcam's mic, open while you're at the bench")
-    p.add_argument("--server", default="http://localhost:8770")
+    p.add_argument("--server", default="http://127.0.0.1:8770")
     p.add_argument("--token", default="", help="default: FM_TOKEN")
     p.add_argument("--device", default="", help="input device name (default: FM_DESK_MIC)")
     p.set_defaults(fn=cmd_desk_mic)
@@ -280,7 +280,7 @@ def main(argv=None):
     p.add_argument("--mock", action="store_true", help="force the mock model")
     p.set_defaults(fn=cmd_serve)
     p = sub.add_parser("static-cam", help="stream a USB webcam as the bench camera")
-    p.add_argument("--server", default="http://localhost:8770")
+    p.add_argument("--server", default="http://127.0.0.1:8770")
     p.add_argument("--token", default="", help="the t= value from the printed link")
     p.add_argument("--device", default="0", help="camera index or stream URL")
     p.add_argument("--fps", type=float, default=3.0, help="frames sent; detection stays ~1/s")
