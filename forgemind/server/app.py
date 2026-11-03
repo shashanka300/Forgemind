@@ -57,7 +57,7 @@ async function tick() {
   else if (r && !r.ok) s.textContent = "No frames: the bench camera isn't streaming.";
 }
 // one at a time: a slow link shows the newest frame late, never a pile of old ones
-(async function loop() { const t = Date.now(); await tick(); setTimeout(loop, Math.max(0, 300 - (Date.now() - t))); })();
+(async function loop() { const t = Date.now(); await tick(); setTimeout(loop, Math.max(0, 110 - (Date.now() - t))); })();
 </script>"""
 
 

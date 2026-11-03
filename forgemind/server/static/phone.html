@@ -744,7 +744,7 @@ function setView(v) {
       const r = await fetch("/api/cameras/static/latest.jpg?px=" + px, {credentials: "same-origin"}).catch(() => null);
       if (r && r.ok) { const u = URL.createObjectURL(await r.blob()), old = img.src; img.src = u; if (old) URL.revokeObjectURL(old); }
       // the next one only after this one: no pile-up on a slow link
-      if (view === "static") deskTimer = setTimeout(tick, Math.max(0, 250 - (Date.now() - t)));
+      if (view === "static") deskTimer = setTimeout(tick, Math.max(0, 110 - (Date.now() - t)));
     };
     tick();
   }

@@ -19,11 +19,10 @@ import time
 import urllib.error
 import urllib.request
 
-# 4K capture, sent at 2560 px: small parts get twice the pixels for identity
-# crops for ~55 ms more server time per frame than 1280 px (SAM itself works at
-# 1008 px, so detection doesn't change). Measured on an RTX 5090, Oct 28.
-FRAME_PX = 2560
-CAPTURE_SIZE = (3840, 2160)      # requested from webcams (falls back to what they offer)
+# 1080p: the webcam gives 28 frames/s there against 13-15 at 4K (measured Nov 3), and SAM works at
+# 1008 px anyway. The user chose 1080p over 4K for a smoother desk view.
+FRAME_PX = 1920
+CAPTURE_SIZE = (1920, 1080)      # requested from webcams (falls back to what they offer)
 
 
 class LatestFrame:
