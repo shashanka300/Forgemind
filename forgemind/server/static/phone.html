@@ -453,8 +453,7 @@ function beginTurn(text) {
   const pending = document.createElement("div"); pending.className = "msg a muted"; pending.textContent = "…";
   $("log").prepend(pending);
   const t = {pending, ack: false};
-  // Only if the answer isn't already here: a fast answer needs no "one moment".
-  t.timer = setTimeout(() => { t.ack = true; speak(ackFor(text) || "One moment."); }, 2000);
+  // No spoken "one moment" / "let me check": the user found it annoying (Nov 3). The "…" shows it's working.
   return t;
 }
 function finishTurn(t, r) {
