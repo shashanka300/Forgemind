@@ -7,7 +7,7 @@ on video length before submitting.
 
 - **Project:** ForgeMind
 - **Track:** Indie developer · **Theme:** Push the Frontier
-- **Video:** https://youtu.be/WTOR9wyb4Ns · **Repo:** https://github.com/shashanka300/Forgemind (make public if required) · **Licence:** AGPL-3.0
+- **Video:** https://youtube.com/shorts/LPui-psQJNs · **Repo:** https://github.com/shashanka300/Forgemind (make public if required) · **Licence:** AGPL-3.0
 
 ## One-liner
 
