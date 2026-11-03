@@ -2,8 +2,29 @@
 
 Where the build stands and what to do next. Update this at the end of each work session.
 
-**Last updated:** Oct 31, 2026, end of session. Next: live test of the "listening restored" build (never run live yet), demo script only. Fixed link https://shashanka-forgemind.shares.zrok.io/ , token in `.env`. Start with launch config `forgemind-live` + `static-cam --device 0` + `desk-mic`; all off while building. **Deadline:** Nov 5, 7:30 AM IST (Nov 4, 9 PM ET).
-**Branch:** `main`. Check `git status -sb` for unpushed commits.
+**Last updated:** Nov 3, 2026, ~midnight IST. **Submission ready, not yet submitted.** Demo video (2:53 cut):
+https://www.youtube.com/watch?v=LPui-psQJNs (same as the Shorts link in README). Text for the form is in
+`docs/SUBMISSION.md` plus the "Meta products" / "why Meta models" answers given in chat (same content as README
+Models + How it works). **Deadline:** Nov 5, **6:30 AM IST** per the official listing (my older note said 7:30).
+**Branch:** `main` = `yoloe` (merged, pushed). Licence AGPL-3.0 (YOLOE via ultralytics). 224 tests pass.
+
+## Submission checklist (Nov 3)
+
+- [x] README rewritten for judges, SUBMISSION.md updated, LICENSE (AGPL-3.0) + `pyproject.toml` licence
+- [x] `yoloe` merged into `main`, pushed
+- [x] Video recorded (3:42), cut to 2:53 and uploaded; link in README and SUBMISSION.md
+- [ ] Make the GitHub repo public if the form needs it (no `gh` here; do it on github.com)
+- [ ] Check the video plays signed out (Unlisted/Public)
+- [ ] Fill the form: name, video link, repo link, descriptions; submit before 6:30 AM IST Nov 5
+
+**Video files** (not in git, `video/` is ignored): `video/Screen_Recording_20261103_224748_Chrome.mp4` (original
+take) and `video/forgemind_demo_3min.mp4` (the cut). The cut was made with the ffmpeg bundled in
+`D:/video generator/.venv/.../imageio_ffmpeg` (14 cuts on measured silences plus the RC "say the full name again"
+mix-up; caption strip "Waits for replies shortened"). The local whisper-large-v3-turbo in the HF cache was used for
+timings. On-screen chat still shows "Did you measure 3.1 volts?" near the end (a wrong reply during the closing).
+
+**Known issues seen in the take:** the closing lines were answered by the agent (it reacted to the narration);
+"write it up" produced no report in the take; transcriber heard "Moses Park", "Cargo", "whose remote".
 
 ## Status
 
