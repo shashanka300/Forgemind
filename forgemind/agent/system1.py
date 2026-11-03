@@ -45,6 +45,17 @@ _SWITCH = re.compile(r"\b(?:switch|change|go|move)\b.*\b(?:to|back to)\s+(?:the\
                      r"(?P<cam>desk|bench|mounted|fixed|static|phone|mobile)\b", re.I)
 
 
+# Asking to pick the work back up, in so many words. Laya was unreliable here and minimal-effort Spark
+# sometimes answers from memory instead (agent-eval, Nov 3); these phrases are unambiguous.
+_RESUME = re.compile(r"^\W*(?:(?:so|okay|ok|alright|right|and)\W+)*(?:where (?:did we|were we|did i) (?:leave off|stop|get to)|"
+                     r"where were we|what'?s next|what is next|let'?s (?:continue|carry on|pick (?:it|this) (?:back )?up)|"
+                     r"(?:let'?s )?(?:continue|resume) (?:the |my |our )?(?:session|work|job|experiment)?)\W*$", re.I)
+
+
+def wants_resume(text):
+    return bool(_RESUME.match(text))
+
+
 def switch_target(text):
     """"desk" or "phone" if this sentence asks to change cameras, else None."""
     m = _SWITCH.search(text)
@@ -246,12 +257,15 @@ class System1:
         if is_compound(text.strip()):
             self.last_reason = "compound"
             return None
+        if wants_resume(text):
+            self.last_decision = {"tool": "resume_session", "conf": 1.0, "multi": 0.0}
+            return FastAction("resume_session", {}, 1.0, dict(self.last_decision))
         cam = switch_target(text)
         if cam:
             self.last_decision = {"tool": "switch_camera", "conf": 1.0, "multi": 0.0}
             return FastAction("switch_camera", {"camera": cam}, 1.0, dict(self.last_decision))
         name = teach_name(text)
-        if name:
+        if name:       # (a place is handled by teach_object itself: it is remembered, not taught)
             self.last_decision = {"tool": "teach_object", "conf": 1.0, "multi": 0.0}
             return FastAction("teach_object", {"name": name}, 1.0, dict(self.last_decision))
         a = self._predict(text, QUESTIONS)

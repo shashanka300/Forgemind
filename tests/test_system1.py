@@ -144,9 +144,14 @@ def test_fast_watch_undone_when_spark_disagrees(rt):
     assert said and said[0].startswith("Correction: I stopped watching the soldering iron.")
 
 
-def test_resume_goes_to_spark(rt):
-    agent = fast_agent(rt, {"where did we leave off?": ("resume_session", 0.99, 0.0)})
-    assert not agent.handle("where did we leave off?").get("fast")
+@pytest.mark.parametrize("text,yes", [
+    ("where did we leave off?", True), ("so where were we", True), ("what's next?", True),
+    ("let's continue the session", True), ("I'm getting back to work at this point.", False),
+    ("no I was asking about my baby's biter where was it.", False), ("what's next to the cooler?", False),
+])
+def test_resume_only_on_plain_phrases(rt, text, yes):
+    from forgemind.agent.system1 import wants_resume
+    assert wants_resume(text) is yes
 
 
 @pytest.mark.parametrize("text,decision", [

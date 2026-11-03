@@ -151,8 +151,9 @@ VISUAL = re.compile(r"\b(?:see|seeing|look|looking|looks|recogni[sz]e|detect|in 
 FRAME_MAX_AGE_S = 10.0
 # A visual conversation goes on after the sentence with "see" in it: "can you recognize the cooler?"
 # then "white cooler." went blind and contradicted itself (phone test 6).
-VISUAL_CARRY_S = 30.0
-LABELLING = re.compile(r"\b(?:label|register|learn|recogni[sz]e|remember|name|call|teach)\b", re.I)
+# 10 s: at 30 s nearly every turn carried a picture, ~2 s slower each (test 7: 49 of 63 turns).
+VISUAL_CARRY_S = 10.0
+LABELLING = re.compile(r"\b(?:label|register|learn|recogni[sz]e|name|call|teach)\b", re.I)
 ASKED_NAME = re.compile(r"\b(?:what|which)\s+(?:name|should i call)\b|\bwhat(?:'s| is)\s+it called\b", re.I)
 ANSWER_NAME_MAX_WORDS = 4
 # "Okay, got your secondary desk" with no tool called: nothing was saved.
@@ -238,7 +239,7 @@ class Agent:
                 return {"role": "user", "content": [
                     {"type": "text", "text": prefix + text},
                     {"type": "text", "text": f"[{view[1]} right now]"},
-                    image_part(view[0], max_px=768, quality=75)]}
+                    image_part(view[0], max_px=512, quality=70)]}
         if not (self.ctx.settings.send_frames and getattr(llm, "supports_vision", False)):
             return {"role": "user", "content": prefix + text}
         parts = [{"type": "text", "text": prefix + text}]

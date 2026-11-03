@@ -21,6 +21,7 @@ class TaughtDetector:
         self.store.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._maker = None          # unfused model, makes embeddings
+        self._base = None           # loaded once; each rebuild copies it instead of reading the file
         self._det = None            # model with the current classes
         self.views = []             # [{"eid", "vpe"}], index = YOLOE class
         self._load_saved()
@@ -47,11 +48,15 @@ class TaughtDetector:
         return p.get_vpe(image).detach().cpu()
 
     def _rebuild(self):
+        import copy
+
         import torch
         self._det = None
         if not self.views:
             return
-        m = self._model()
+        if self._base is None:
+            self._base = self._model()
+        m = copy.deepcopy(self._base)
         vpe = torch.cat([v["vpe"] for v in self.views], dim=1)
         m.set_classes([f"view{i}" for i in range(len(self.views))], vpe.to(next(m.model.parameters()).device))
         self._det = m

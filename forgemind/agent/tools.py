@@ -461,10 +461,15 @@ class ToolBox:
             frames = [p.latest["mobile"]]
         frames = frames[:TEACH_VIEWS]
         name = _plain_name(a.name, keep_case=True) or a.name    # "my scissor" is "scissor"
+        if is_place(name):
+            s = self.mem.experiments.active()
+            self.mem.notes.add("fact", f"the place the phone was showing is the user's {name}",
+                               source_turn=self.utterance, session_id=s["id"] if s else None)
+            return {"place": name, "summary": f"Okay, that's your {name}. I'll remember it as a place."}
         a = a.model_copy(update={"name": self.mem.registry.same_name(name)})
         if self.utterance is not None and not name_said(a.name, self.utterance):
             # Phone test: "thanks for locating it" re-taught whatever was in view.
-            raise ToolError(f"To teach the {a.name}, hold it up and say its name.")
+            raise ToolError(f"I didn't hear you name it, so I haven't saved anything as the {a.name}.")
         crops, hows, boxes, images, concept = [], [], [], [], a.concept
         for f in frames:
             box, c, how = self._teach_target(f, concept, a.name)
@@ -480,13 +485,17 @@ class ToolBox:
             crops, boxes, hows = [crops[i] for i in good], [boxes[i] for i in good], [hows[i] for i in good]
             images = [images[i] for i in good]
         keyframe = p._save_keyframe("mobile", frames[0]["image"], time.time(), force=True)
+        # The user named what they are holding: that wins, even if it looks like something taught
+        # (two boards of one kind, test 7). Only a name the model made up meets the look-alike check.
+        named = self.utterance is None or name_said(a.name, self.utterance)
         try:
-            v = self.mem.registry.teach(a.name, crops, concept or "object", keyframe)
+            v = self.mem.registry.teach(a.name, crops, concept or "object", keyframe, force=named)
         except TeachConflict as e:
-            raise ToolError(f"That looks like your {e.label}. If it's really the {a.name}, "
-                            f"say: that's not the {e.label}, it's the {a.name}.")
+            raise ToolError(f"That looks like your {e.label} to me.")
         self.mem.registry.saw_taught(v["id"], p.phone_zone.current(time.time()), boxes[0], keyframe)
-        summary = f"Got it, that's your {a.name}. Turn it around for a few seconds so I learn it."
+        summary = f"Got it, that's your {a.name}."
+        if all(h != "centre" for h in hows):
+            summary += " Turn it around for a few seconds so I learn it."
         p.learning[v["id"]] = time.time() + LEARN_FOR_S
         self._save_reference(v["id"], crops[0])
         if p.taught_detector:
@@ -670,6 +679,25 @@ class ToolBox:
         self.ctx.hub.push({"type": "alert", "severity": a.severity, "message": a.message})
         self.mem.db.log_event("alert", "inferred", {"message": a.message, "severity": a.severity})
         return {"summary": "Sent."}
+
+
+# A bench, desk or shelf can't be held up and turned around: it is a place to remember, not an object
+# to recognise (test 7: "secondary bench" taught, then the cooler was labelled with it).
+PLACE_WORDS = {"bench", "desk", "table", "shelf", "shelves", "room", "door", "window", "wall", "floor",
+               "cabinet", "cupboard", "rack", "corner", "workbench", "workspace", "kitchen", "bedroom",
+               "garage", "drawer", "counter", "area", "side", "station"}
+
+
+# also as the end of a compound word: "bookshelves", "nightstand-table"
+_PLACE_ENDINGS = ("shelf", "shelves", "desk", "table", "bench", "cabinet", "cupboard", "room", "drawer")
+
+
+def is_place(name):
+    words = _plain_name(name).split()
+    if not words:
+        return False
+    last = words[-1]
+    return last.rstrip("s") in {w.rstrip("s") for w in PLACE_WORDS} or last.endswith(_PLACE_ENDINGS)
 
 
 def _plain_name(name, keep_case=False):

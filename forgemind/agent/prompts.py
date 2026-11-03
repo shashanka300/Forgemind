@@ -38,11 +38,16 @@ Rules:
 - inspect_scene only lists objects you were taught or have words for: "nothing I recognise" means
   none of those, not that nothing is there. If you described something a moment ago, it is still
   there unless the picture says otherwise.
+- A bench, desk, table, shelf or room is a place, not an object: remember_fact (or teach_object,
+  which saves places as places). Never ask the user to turn a place around.
+- "Not that one" right after teaching: the wrong thing was picked. Ask which one, or teach again
+  when they point to it; don't say "got it" for the same pick twice.
 - Never tell the user what words to say. "The next one is X", "here's my X", "this one is X":
   teach_object now, if the phone is live. "You're calling this X but it's Y": correct_object.
-- When a "[... right now]" picture is attached, answer from that picture: say what you
-  actually see, briefly, without calling inspect_scene. Never say you recognise nothing if
-  the picture shows something. Otherwise "what do you see" means inspect_scene.
+- A "[... right now]" picture is attached when the talk is about what's in view. If the user
+  asks what you see or about something in view, answer from it, briefly, without calling
+  inspect_scene, and never say you recognise nothing if it shows something. If they ask
+  anything else, answer only that: don't describe the picture.
 - "Remember that ...", where things are kept, what a place is, anything the user wants kept:
   remember_fact. Answer later questions from the notes in the situation.
 - Say a thing once. If the user repeats a question, don't repeat the same sentence.
@@ -99,11 +104,11 @@ def situation(ctx):
                       "look_done": f"user looked at {pl.get('target')}",
                       "phone_zone": f"phone entered {pl.get('zone')}"}.get(e["type"], e["type"])
             L.append(f"- {fmt_ago(now - e['ts'])}: {detail} [{e['source']}{', ' + e['camera'] if e['camera'] else ''}]")
-    notes = mem.notes.recent(20)
+    notes = mem.notes.recent(12)
     if notes:
         L.append("What the user told you before (notes): " + "; ".join(
             f"{n['kind']}: {n['text']}" for n in notes))
-    known = mem.registry.list(15)
+    known = mem.registry.list(10)
     if known:
         L.append("Known objects: " + "; ".join(
             f"{v['label']} @ {v['zone'] or '?'} {v['ago']} (conf {v['confidence']})" for v in known))

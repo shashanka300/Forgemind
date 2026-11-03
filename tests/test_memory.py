@@ -98,7 +98,7 @@ def test_teach_uses_the_middle_when_it_cannot_pick_out_the_object(rt):
 def test_small_talk_does_not_teach(rt):
     rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
     rt.agent.tools.utterance = "thanks for locating it"
-    assert "say its name" in rt.agent.tools.run("teach_object", {"name": "baby's biter"})["error"]
+    assert "haven't saved" in rt.agent.tools.run("teach_object", {"name": "baby's biter"})["error"]
     rt.agent.tools.utterance = "these are my hex keys"
     assert "error" not in rt.agent.tools.run("teach_object", {"name": "hex key"})
 
@@ -110,12 +110,15 @@ def test_just_taught_object_can_be_found(rt):
     assert found["last_seen"] and found["camera"] == "mobile" and found["id"] == v["id"]
 
 
-def test_teaching_a_lookalike_of_another_taught_object_is_refused(rt):
+def test_a_lookalike_the_model_named_is_refused_but_the_user_s_name_wins(rt):
     rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
     rt.agent.tools.run("teach_object", {"name": "mouse"})
+    rt.agent.tools.utterance = "yeah have a look at it"            # the model invented "biter"
     out = rt.agent.tools.run("teach_object", {"name": "biter"})
-    assert "looks like your mouse" in out["error"]
-    assert rt.memory.registry.find("biter") == []
+    assert "haven't saved" in out["error"] and rt.memory.registry.find("biter") == []
+    rt.agent.tools.utterance = "so this is my second mouse"         # the user said it
+    assert "error" not in rt.agent.tools.run("teach_object", {"name": "second mouse"})
+    rt.agent.tools.utterance = None
 
 
 def test_correct_object_moves_the_label(rt):
@@ -401,3 +404,14 @@ def test_teach_refused_while_paused_or_on_the_desk_view(rt):
     rt.perception.paused = False
     rt.perception.view = "static"
     assert "phone camera" in rt.agent.tools.run("teach_object", {"name": "key"})["error"]
+
+
+def test_places_are_remembered_not_taught(rt):
+    from forgemind.agent.tools import is_place
+    rt.perception.process("mobile", scene([("hex key", .4, .4, .6, .6)], tag=2), ts=time.time())
+    out = rt.agent.tools.run("teach_object", {"name": "my secondary bench"})
+    assert out["place"] == "secondary bench" and "place" in out["summary"]
+    assert not [v for v in rt.memory.registry.list() if v["taught"]]
+    assert any("secondary bench" in n["text"] for n in rt.memory.notes.recent(5))
+    assert is_place("third desk") and is_place("bookshelves") and not is_place("pen drive")
+    assert not is_place("track") and not is_place("Arduino board")

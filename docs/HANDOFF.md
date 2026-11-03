@@ -109,6 +109,17 @@ Not covered by these: real audio, read_closeup, an alert firing live. Live Spark
 prompt tokens to explain it. Researched alternatives (YOLOE visual prompts, OWLv2, SAM 3 exemplars
 across images): kept SAM + PE for now, YOLOE is the first thing to try if recall stays poor.
 
+## Test 7 fixes (branch `yoloe`)
+Speed: most of each turn was Spark reasoning (213 tokens for "Say ok." at effort=low). `FM_REASONING_EFFORT=minimal`
+(supported values: minimal, low, medium, high, xhigh, max): agent-eval 19/19, median 1.8 s. "Where did we leave off"-style
+phrases go straight to resume_session (`wants_resume`). A picture is context: Spark only describes it when asked. Bench camera
+and mic clients use 127.0.0.1 ("localhost" cost 2 s per request); bench at 1080p, 8 fps. Direct https on the Wi-Fi at
+https://<lan ip>:8771 (self-signed cert in <data>/certs, made with Git's openssl).
+
+Median turn 9.8 s: 49/63 turns carried a 768 px picture (+2 s each); teaching 13.6 s (YOLOE reloaded weights every teach). Now:
+carry 10 s, 512 px, YOLOE copies its loaded model, smaller situation. Places (bench/desk/shelf...) are saved as notes, never
+taught. A name the user said wins over the look-alike check; no "say: ..." messages. Meta API itself was slower (no-picture turns 5.8 s).
+
 ## Test 6 fixes: lost words, going blind (branch `yoloe`)
 
 Sentences lost their starts because the mic was muted while it spoke + 1.2 s; "Ingress audio slower than real-time" ended
