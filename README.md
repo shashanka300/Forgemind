@@ -8,7 +8,7 @@ agent on Meta's Muse models answers.
 > point the phone. The same requests ("look at", "highlight", "read this") can drive a robot later.
 
 Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), indie track, theme
-*Push the Frontier*. Demo script: [`docs/video_script.html`](docs/video_script.html).
+*Push the Frontier*. **Demo video: https://youtu.be/WTOR9wyb4Ns** · script: [`docs/video_script.html`](docs/video_script.html).
 
 ## What it does
 
